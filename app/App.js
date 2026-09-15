@@ -25,6 +25,10 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { db, waitForAuth } from './firebase';
+import MapPicker from './MapPicker';
+
+// 地図モーダルを開くときの初期中心座標（現在地取得に失敗した場合のフォールバック: 東京駅）
+const DEFAULT_CENTER = { lat: 35.681236, lng: 139.767125 };
 
 const GEOFENCE_TASK = 'mykarte-geofence-task';
 const GEOFENCE_RADIUS_METERS = 120;
@@ -81,6 +85,9 @@ export default function App() {
   const [goodPoint, setGoodPoint] = useState('');
   const [caution, setCaution] = useState('');
   const [saving, setSaving] = useState(false);
+  const [location, setLocation] = useState(null); // { lat, lng }
+  const [mapVisible, setMapVisible] = useState(false);
+  const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER);
 
   // 起動時: サインイン → 位置情報の許可 → 通知の許可
   useEffect(() => {
@@ -149,20 +156,48 @@ export default function App() {
     }
   }, []);
 
+  const handleUseCurrentLocation = async () => {
+    try {
+      const position = await Location.getCurrentPositionAsync({});
+      setLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
+    } catch (e) {
+      Alert.alert('現在地の取得に失敗しました', String(e));
+    }
+  };
+
+  const handleOpenMapPicker = async () => {
+    // 地図の初期表示位置を決めるためだけに現在地を試みる（失敗してもデフォルト中心で開く）
+    try {
+      const position = await Location.getCurrentPositionAsync({});
+      setMapCenter({ lat: position.coords.latitude, lng: position.coords.longitude });
+    } catch (e) {
+      // 取得できなければ DEFAULT_CENTER のまま
+    }
+    setMapVisible(true);
+  };
+
+  const handleMapConfirm = (lat, lng) => {
+    setLocation({ lat, lng });
+    setMapVisible(false);
+  };
+
   const handleAddSpot = async () => {
     if (!name.trim()) {
       Alert.alert('場所の名前を入力してください');
       return;
     }
+    if (!location) {
+      Alert.alert('場所を選択してください', '「現在地を使う」か「地図で選ぶ」で位置を指定してください。');
+      return;
+    }
     setSaving(true);
     try {
-      const position = await Location.getCurrentPositionAsync({});
       await addDoc(collection(db, 'spots'), {
         ownerId: uid,
         name: name.trim(),
         category,
-        lat: position.coords.latitude,
-        lng: position.coords.longitude,
+        lat: location.lat,
+        lng: location.lng,
         visits: [
           {
             date: new Date().toISOString(),
@@ -175,6 +210,7 @@ export default function App() {
       setName('');
       setGoodPoint('');
       setCaution('');
+      setLocation(null);
     } catch (e) {
       Alert.alert('保存に失敗しました', String(e));
     } finally {
@@ -194,6 +230,19 @@ export default function App() {
       </Text>
 
       <View style={styles.form}>
+        <View style={styles.locationRow}>
+          <TouchableOpacity style={styles.locationButton} onPress={handleUseCurrentLocation}>
+            <Text style={styles.locationButtonText}>📍 現在地を使う</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.locationButton} onPress={handleOpenMapPicker}>
+            <Text style={styles.locationButtonText}>🗺 地図で選ぶ</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.locationStatus}>
+          {location
+            ? `選択済み: ${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`
+            : '位置が未選択です'}
+        </Text>
         <TextInput
           style={styles.input}
           placeholder="場所の名前（例: 油そば〇〇）"
@@ -247,6 +296,14 @@ export default function App() {
         }}
         ListEmptyComponent={<Text style={styles.empty}>まだ記録がありません</Text>}
       />
+
+      <MapPicker
+        visible={mapVisible}
+        initialLat={mapCenter.lat}
+        initialLng={mapCenter.lng}
+        onConfirm={handleMapConfirm}
+        onCancel={() => setMapVisible(false)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -261,6 +318,17 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: 'bold' },
   subtitle: { color: '#666', marginBottom: 12 },
   form: { gap: 8, marginBottom: 16 },
+  locationRow: { flexDirection: 'row', gap: 8 },
+  locationButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#2f6fed',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  locationButtonText: { color: '#2f6fed', fontWeight: 'bold' },
+  locationStatus: { color: '#666', fontSize: 12, marginBottom: 4 },
   input: {
     borderWidth: 1,
     borderColor: '#ccc',

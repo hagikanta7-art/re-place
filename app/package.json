@@ -12,7 +12,8 @@
     "expo-task-manager": "~57.0.17",
     "firebase": "^12.19.0",
     "react": "19.2.3",
-    "react-native": "0.86.3"
+    "react-native": "0.86.3",
+    "react-native-webview": "13.16.1"
   },
   "scripts": {
     "start": "expo start",
