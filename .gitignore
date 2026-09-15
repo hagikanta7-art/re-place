@@ -1,0 +1,39 @@
+# Node / npm
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Expo
+.expo/
+.expo-shared/
+dist/
+web-build/
+
+# Native build output (bare workflow / expo run:*)
+android/app/build/
+ios/build/
+*.apk
+*.aab
+*.ipa
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+google-services.json
+GoogleService-Info.plist
+firebase-adminsdk*.json
+*.keystore
+*.jks
+
+# EAS
+.eas/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
