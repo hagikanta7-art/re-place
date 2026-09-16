@@ -1,15 +1,42 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { getAuth } from 'firebase/auth';
-import { subscribeToSpots } from '../core/spots';
+import { subscribeToSpots, latestVisit } from '../core/spots';
 
 const DEFAULT_CENTER = { lat: 35.681236, lng: 139.767125 }; // 東京駅（フォールバック）
+
+const CATEGORY_ICON = {
+  飲食: '🍜',
+  美容: '✂️',
+  通院: '🏥',
+  バイト: '💼',
+  学習: '📚',
+  仕事: '💼',
+};
+
+function escapeHtml(text) {
+  return String(text ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
 
 function buildHtml(spots, center) {
   const markers = spots
     .filter((s) => typeof s.lat === 'number' && typeof s.lng === 'number')
-    .map((s) => ({ id: s.id, lat: s.lat, lng: s.lng, name: s.name || '場所' }));
+    .map((s) => {
+      const last = latestVisit(s);
+      return {
+        id: s.id,
+        lat: s.lat,
+        lng: s.lng,
+        name: escapeHtml(s.name || '場所'),
+        icon: CATEGORY_ICON[s.category] || '📍',
+        category: escapeHtml(s.category || '未分類'),
+        preview: escapeHtml(last?.goodPoint || last?.content || ''),
+      };
+    });
 
   const firstMarker = markers[0];
   const centerLat = firstMarker ? firstMarker.lat : center.lat;
@@ -25,6 +52,32 @@ function buildHtml(spots, center) {
     html, body, #map { height: 100%; margin: 0; padding: 0; }
     body { background: #f5f7fb; }
     .leaflet-control-attribution { font-size: 10px; }
+    .spot-label {
+      background: #fff;
+      border: 1px solid #E5E7EB;
+      border-radius: 8px;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #1F2937;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .spot-label::before { display: none; }
+    .spot-popup { min-width: 160px; }
+    .spot-popup-title { font-size: 14px; font-weight: 700; color: #1F2937; }
+    .spot-popup-category { font-size: 11px; color: #6B7280; margin-top: 2px; }
+    .spot-popup-preview { font-size: 12px; color: #374151; margin-top: 6px; }
+    .spot-popup-button {
+      margin-top: 8px;
+      width: 100%;
+      background: #2F6FED;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 0;
+      font-size: 12px;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
@@ -41,10 +94,25 @@ function buildHtml(spots, center) {
     var markers = ${JSON.stringify(markers)};
     markers.forEach(function (m) {
       var marker = L.marker([m.lat, m.lng]).addTo(map);
-      marker.bindPopup(m.name || '場所');
-      marker.on('click', function () {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ spotId: m.id }));
+
+      // 常に地図上に名前を表示（タップしなくても分かるように）
+      marker.bindTooltip(m.icon + ' ' + m.name, {
+        permanent: true,
+        direction: 'top',
+        offset: [0, -8],
+        className: 'spot-label',
       });
+
+      // タップするとカテゴリ・前回の内容も含めたポップアップを表示。
+      // ここではまだ画面遷移しない（ボタンを押したときだけ遷移する）
+      var popupHtml =
+        '<div class="spot-popup">' +
+        '<div class="spot-popup-title">' + m.icon + ' ' + m.name + '</div>' +
+        '<div class="spot-popup-category">' + m.category + '</div>' +
+        (m.preview ? '<div class="spot-popup-preview">◎ ' + m.preview + '</div>' : '') +
+        '<button class="spot-popup-button" onclick="window.ReactNativeWebView.postMessage(JSON.stringify({spotId:\\'' + m.id + '\\'}))">カルテを開く ›</button>' +
+        '</div>';
+      marker.bindPopup(popupHtml);
     });
 
     if (markers.length > 0) {
@@ -85,7 +153,7 @@ export default function SpotMapScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>地図</Text>
       </View>
