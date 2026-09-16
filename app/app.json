@@ -36,7 +36,8 @@
           "locationAlwaysAndWhenInUsePermission": "近くの記録を通知するために位置情報を使用します。"
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
       "eas": {
