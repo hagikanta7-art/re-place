@@ -83,7 +83,11 @@ export async function getGeofenceStatus() {
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    // shouldShowAlert は非推奨（expo-notifications 57で shouldShowBanner /
+    // shouldShowList に分離された）。これを設定していなかったため、通知の
+    // 作成自体は成功していても実際には表示されていなかった可能性が高い。
+    shouldShowBanner: true, // 画面上部にバナー表示（旧shouldShowAlert相当）
+    shouldShowList: true, // 通知一覧・ステータスバーに残す
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
@@ -119,6 +123,11 @@ async function handleSpotEnter(spotId, cause) {
   if (spot.notifyEnabled === false) {
     await appendLog(`⏸ 通知OFF設定のためスキップ (${cause}): ${spot.name}`);
     return;
+  }
+
+  const permission = await Notifications.getPermissionsAsync();
+  if (permission.status !== 'granted') {
+    await appendLog(`⚠ 通知の許可がありません（status=${permission.status}）。表示されない可能性があります`);
   }
 
   const visits = spot.visits || [];
