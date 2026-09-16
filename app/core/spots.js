@@ -1,0 +1,113 @@
+// spots コレクションへのアクセスをまとめた共通データ層。
+// 画面側は Firestore を直接触らず、必ずこのファイルの関数を経由すること。
+// （担当が分かれても、データの形が食い違わないようにするための土台）
+//
+// spots/{spotId}
+//   ownerId: string
+//   name: string
+//   category: string
+//   lat: number
+//   lng: number
+//   notifyEnabled: boolean        … この場所の到着通知を有効にするか
+//   createdAt: serverTimestamp
+//   visits: [
+//     {
+//       date: string (ISO8601),
+//       content: string,          … 今回の内容（例: 油そば大盛り）
+//       goodPoint: string,        … 良かったこと
+//       caution: string,          … 次回の注意点
+//       photoBase64: string|null, … 圧縮済み画像。任意
+//     },
+//     ...
+//   ]
+
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  addDoc,
+  doc,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
+import { db } from './firebase';
+
+const SPOTS_COLLECTION = 'spots';
+
+export function emptyVisit() {
+  return { date: new Date().toISOString(), content: '', goodPoint: '', caution: '', photoBase64: null };
+}
+
+// 自分の spots 一覧をリアルタイム購読する。戻り値は unsubscribe 関数。
+export function subscribeToSpots(uid, onChange) {
+  const q = query(collection(db, SPOTS_COLLECTION), where('ownerId', '==', uid));
+  return onSnapshot(q, (snapshot) => {
+    const list = [];
+    snapshot.forEach((d) => list.push({ id: d.id, ...d.data() }));
+    onChange(list);
+  });
+}
+
+// 1件の spot をリアルタイム購読する（カルテ画面・訪問履歴画面で使う）
+export function subscribeToSpot(spotId, onChange) {
+  return onSnapshot(doc(db, SPOTS_COLLECTION, spotId), (snap) => {
+    onChange(snap.exists() ? { id: snap.id, ...snap.data() } : null);
+  });
+}
+
+// 1回だけ取得（バックグラウンドタスクなど、購読が要らない場所で使う）
+export async function getSpot(spotId) {
+  const snap = await getDoc(doc(db, SPOTS_COLLECTION, spotId));
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+// 新しい場所を作成する（③場所登録画面用）。訪問記録はまだ空で、
+// ④のカルテから「+ 今回の記録」で最初の記録を追加する流れを想定。
+export async function createSpot(uid, { name, category, lat, lng, notifyEnabled = true }) {
+  const ref = await addDoc(collection(db, SPOTS_COLLECTION), {
+    ownerId: uid,
+    name,
+    category,
+    lat,
+    lng,
+    notifyEnabled,
+    visits: [],
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+// 場所そのものの情報（名前・カテゴリ・位置・通知ON/OFF）を更新する
+export async function updateSpotInfo(spotId, fields) {
+  await updateDoc(doc(db, SPOTS_COLLECTION, spotId), fields);
+}
+
+export async function deleteSpot(spotId) {
+  await deleteDoc(doc(db, SPOTS_COLLECTION, spotId));
+}
+
+// 訪問記録を1件追加する（既存の記録は上書きしない = 蓄積機能の本体）
+export async function addVisit(spotId, visit) {
+  const spot = await getSpot(spotId);
+  if (!spot) throw new Error('spot not found');
+  const visits = [...(spot.visits || []), visit];
+  await updateDoc(doc(db, SPOTS_COLLECTION, spotId), { visits });
+}
+
+// 既存の訪問記録（index指定）を編集する
+export async function updateVisit(spotId, visitIndex, updatedVisit) {
+  const spot = await getSpot(spotId);
+  if (!spot) throw new Error('spot not found');
+  const visits = [...(spot.visits || [])];
+  if (visitIndex < 0 || visitIndex >= visits.length) throw new Error('visit index out of range');
+  visits[visitIndex] = { ...visits[visitIndex], ...updatedVisit };
+  await updateDoc(doc(db, SPOTS_COLLECTION, spotId), { visits });
+}
+
+export function latestVisit(spot) {
+  const visits = spot?.visits || [];
+  return visits.length > 0 ? visits[visits.length - 1] : null;
+}
