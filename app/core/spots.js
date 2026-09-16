@@ -33,9 +33,34 @@ import {
   deleteDoc,
   serverTimestamp,
 } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from './firebase';
 
 const SPOTS_COLLECTION = 'spots';
+
+// バックグラウンドでジオフェンスタスクが起こされた直後は、Firestoreの接続が
+// 間に合わず "client is offline" で読み取りに失敗することがある（実機の診断ログで確認済み）。
+// そのため、アプリが通常起動中に取得できたスポット一覧を端末内にキャッシュしておき、
+// バックグラウンドタスク側はオンライン取得に失敗したときだけこちらにフォールバックする。
+const SPOTS_CACHE_KEY = 'spots:cache';
+
+async function cacheSpots(spots) {
+  try {
+    await AsyncStorage.setItem(SPOTS_CACHE_KEY, JSON.stringify(spots));
+  } catch (e) {
+    // キャッシュ保存の失敗は無視してよい（次にオンラインで取れた時にまた保存される）
+  }
+}
+
+export async function getCachedSpot(spotId) {
+  try {
+    const raw = await AsyncStorage.getItem(SPOTS_CACHE_KEY);
+    const spots = raw ? JSON.parse(raw) : [];
+    return spots.find((s) => s.id === spotId) || null;
+  } catch (e) {
+    return null;
+  }
+}
 
 export function normalizeSpot(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -66,6 +91,7 @@ export function subscribeToSpots(uid, onChange) {
       if (spot) list.push(spot);
     });
     onChange(list);
+    cacheSpots(list); // ジオフェンスのバックグラウンドタスクからのフォールバック用
   });
 }
 

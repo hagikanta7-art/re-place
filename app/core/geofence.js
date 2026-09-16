@@ -11,7 +11,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getSpot, latestVisit } from './spots';
+import { getSpot, getCachedSpot, latestVisit } from './spots';
 import { getNotificationBodyVisible } from './prefs';
 
 export const GEOFENCE_TASK = 'mykarte-geofence-task';
@@ -115,7 +115,16 @@ async function handleSpotEnter(spotId, cause) {
     return;
   }
 
-  const spot = await getSpot(spotId);
+  // バックグラウンドで起こされた直後はFirestoreの接続が間に合わず
+  // "client is offline" 等で失敗することがあるため、オンライン取得に失敗したら
+  // 直近にアプリ使用中にキャッシュしておいたデータにフォールバックする。
+  let spot = null;
+  try {
+    spot = await getSpot(spotId);
+  } catch (e) {
+    await appendLog(`⚠ オンライン取得に失敗、キャッシュを使用 (${cause}): ${e.message || e}`);
+    spot = await getCachedSpot(spotId);
+  }
   if (!spot) {
     await appendLog(`❌ スポットが見つからない (${cause}): ${spotId}`);
     return;
