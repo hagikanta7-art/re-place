@@ -18,8 +18,34 @@ export const DEFAULT_GEOFENCE_RADIUS_METERS = 120;
 
 // 同じ場所に居座っている間、境界の出入りで何度も通知が来ないようにするクールダウン。
 // （境界付近を行ったり来たりするとEnterイベントが連発することがあるため）
-const NOTIFY_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3時間
+// ※テスト段階では短めにしておく。デモ本番が近づいたら伸ばすことを検討。
+const NOTIFY_COOLDOWN_MS = 10 * 60 * 1000; // 10分
 const lastNotifiedKey = (spotId) => `geofence:lastNotified:${spotId}`;
+
+// 「タスクが発火したが、なぜ通知を出さなかったか／出せなかったか」を記録する診断ログ。
+// 実機を持ち帰らなくても⑦設定画面から原因を確認できるようにするためのもの。
+const GEOFENCE_LOG_KEY = 'geofence:log';
+const MAX_LOG_ENTRIES = 30;
+
+async function appendLog(message) {
+  try {
+    const raw = await AsyncStorage.getItem(GEOFENCE_LOG_KEY);
+    const log = raw ? JSON.parse(raw) : [];
+    log.unshift({ message, at: new Date().toISOString() });
+    await AsyncStorage.setItem(GEOFENCE_LOG_KEY, JSON.stringify(log.slice(0, MAX_LOG_ENTRIES)));
+  } catch (e) {
+    // ログ自体の失敗は握りつぶす（本来の通知処理を止めないため）
+  }
+}
+
+export async function getGeofenceLog() {
+  const raw = await AsyncStorage.getItem(GEOFENCE_LOG_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
+
+export async function clearGeofenceLog() {
+  await AsyncStorage.removeItem(GEOFENCE_LOG_KEY);
+}
 
 async function isWithinCooldown(spotId) {
   const raw = await AsyncStorage.getItem(lastNotifiedKey(spotId));
@@ -64,19 +90,38 @@ Notifications.setNotificationHandler({
 
 TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   if (error) {
-    console.log('geofence task error', error);
+    await appendLog(`❌ タスクエラー: ${error.message || error}`);
     return;
   }
-  if (!data) return;
+  if (!data) {
+    await appendLog('⚠ タスクは発火したがdataが空');
+    return;
+  }
   const { eventType, region } = data;
-  if (eventType !== Location.GeofencingEventType.Enter) return;
+  await appendLog(
+    `🔔 タスク発火: eventType=${eventType} identifier=${region?.identifier}`
+  );
+  if (eventType !== Location.GeofencingEventType.Enter) {
+    await appendLog('（Enterイベントではないためスキップ）');
+    return;
+  }
 
   try {
     const spotId = region.identifier;
-    if (await isWithinCooldown(spotId)) return;
+    if (await isWithinCooldown(spotId)) {
+      await appendLog(`⏸ クールダウン中のためスキップ: ${spotId}`);
+      return;
+    }
 
     const spot = await getSpot(spotId);
-    if (!spot || spot.notifyEnabled === false) return;
+    if (!spot) {
+      await appendLog(`❌ スポットが見つからない: ${spotId}`);
+      return;
+    }
+    if (spot.notifyEnabled === false) {
+      await appendLog(`⏸ 通知OFF設定のためスキップ: ${spot.name}`);
+      return;
+    }
 
     const visits = spot.visits || [];
     const last = latestVisit(spot);
@@ -102,8 +147,9 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
     });
 
     await markNotified(spotId);
+    await appendLog(`✅ 通知を送信: ${spot.name}`);
   } catch (e) {
-    console.log('geofence task failed', e);
+    await appendLog(`❌ 例外発生: ${e.message || e}`);
   }
 });
 
@@ -131,9 +177,10 @@ export async function registerGeofences(spots) {
       await Location.startGeofencingAsync(GEOFENCE_TASK, regions);
     }
     await saveGeofenceMeta(regions.length);
+    await appendLog(`📍 ジオフェンス登録: ${regions.length}件`);
   } catch (e) {
-    console.log('geofence registration failed', e);
     await saveGeofenceMeta(0);
+    await appendLog(`❌ ジオフェンス登録に失敗: ${e.message || e}`);
   }
 }
 
