@@ -3,7 +3,16 @@ import { View, Text, Switch, TouchableOpacity, AppState, Linking, StyleSheet } f
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { getNotificationBodyVisible, setNotificationBodyVisible } from '../core/prefs';
+import { getGeofenceStatus } from '../core/geofence';
 import { colors, spacing, radius } from '../core/theme';
+
+function formatTime(iso) {
+  if (!iso) return '未登録';
+  const d = new Date(iso);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}更新`;
+}
 
 // ⑦設定。D担当。許可状況の表示と、通知本文表示のON/OFFのみのシンプルな画面。
 export default function SettingsScreen() {
@@ -11,6 +20,7 @@ export default function SettingsScreen() {
   const [locationStatus, setLocationStatus] = useState('確認中...');
   const [locationGranted, setLocationGranted] = useState(true);
   const [bodyVisible, setBodyVisible] = useState(true);
+  const [geofenceStatus, setGeofenceStatus] = useState({ isActive: false, count: null, updatedAt: null });
 
   const refreshPermissions = useCallback(async () => {
     const notif = await Notifications.getPermissionsAsync();
@@ -28,6 +38,8 @@ export default function SettingsScreen() {
       setLocationStatus('未許可');
       setLocationGranted(false);
     }
+
+    setGeofenceStatus(await getGeofenceStatus());
   }, []);
 
   useEffect(() => {
@@ -63,6 +75,23 @@ export default function SettingsScreen() {
         <Switch value={bodyVisible} onValueChange={handleToggleBodyVisible} />
       </View>
 
+      <View style={styles.row}>
+        <Text style={styles.label}>ジオフェンス監視</Text>
+        <Text
+          style={[styles.value, !geofenceStatus.isActive && styles.valueWarning]}
+        >
+          {geofenceStatus.isActive ? '有効' : '停止中'}
+        </Text>
+      </View>
+      <Text style={styles.subNote}>
+        {geofenceStatus.count != null
+          ? `${geofenceStatus.count}件のスポットを監視中（${formatTime(geofenceStatus.updatedAt)}）`
+          : 'まだ場所が登録されていません'}
+      </Text>
+      <TouchableOpacity style={styles.refreshButton} onPress={refreshPermissions}>
+        <Text style={styles.refreshButtonText}>状態を再確認</Text>
+      </TouchableOpacity>
+
       {!locationGranted && (
         <TouchableOpacity style={styles.settingsButton} onPress={() => Linking.openSettings()}>
           <Text style={styles.settingsButtonText}>端末の設定を開く</Text>
@@ -74,6 +103,9 @@ export default function SettingsScreen() {
       </Text>
       <Text style={styles.note}>
         「通知本文の表示」をOFFにすると、通知に「良かったこと」「注意点」の内容を表示せず、記録がある旨だけをお知らせします（ロック画面等で内容を見られたくない場合に）。
+      </Text>
+      <Text style={styles.note}>
+        「ジオフェンス監視」が停止中、または件数が0のまま変わらない場合は、位置トリガー通知は動きません。場所を登録し直すか、このアプリを一度開き直してから「状態を再確認」を押してください。
       </Text>
     </View>
   );
@@ -92,6 +124,9 @@ const styles = StyleSheet.create({
   label: { fontSize: 15, color: colors.text },
   value: { color: colors.primary, fontWeight: 'bold' },
   valueWarning: { color: colors.danger },
+  subNote: { color: colors.textFaint, fontSize: 12, marginTop: -4, marginBottom: spacing.xs },
+  refreshButton: { alignSelf: 'flex-start', paddingVertical: 4 },
+  refreshButtonText: { color: colors.primary, fontSize: 12 },
   settingsButton: {
     marginTop: spacing.md,
     borderWidth: 1,

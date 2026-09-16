@@ -32,6 +32,28 @@ async function markNotified(spotId) {
   await AsyncStorage.setItem(lastNotifiedKey(spotId), String(Date.now()));
 }
 
+// 「本当にジオフェンス登録が動いたか」を⑦設定画面で確認できるようにするための記録。
+// expo-locationには登録件数を直接問い合わせるAPIがないため、
+// registerGeofences() が実行されるたびに自分で記録しておく。
+const GEOFENCE_META_KEY = 'geofence:meta';
+
+async function saveGeofenceMeta(count) {
+  await AsyncStorage.setItem(
+    GEOFENCE_META_KEY,
+    JSON.stringify({ count, updatedAt: new Date().toISOString() })
+  );
+}
+
+// ⑦設定画面から呼び出す診断用関数。
+// isActive: OSにジオフェンスタスクが登録されているか
+// count/updatedAt: 最後に registerGeofences() が何件登録したか、いつ登録したか
+export async function getGeofenceStatus() {
+  const isActive = await Location.hasStartedGeofencingAsync(GEOFENCE_TASK);
+  const raw = await AsyncStorage.getItem(GEOFENCE_META_KEY);
+  const meta = raw ? JSON.parse(raw) : { count: null, updatedAt: null };
+  return { isActive, ...meta };
+}
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -108,8 +130,10 @@ export async function registerGeofences(spots) {
     if (regions.length > 0) {
       await Location.startGeofencingAsync(GEOFENCE_TASK, regions);
     }
+    await saveGeofenceMeta(regions.length);
   } catch (e) {
     console.log('geofence registration failed', e);
+    await saveGeofenceMeta(0);
   }
 }
 
