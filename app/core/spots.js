@@ -37,6 +37,21 @@ import { db } from './firebase';
 
 const SPOTS_COLLECTION = 'spots';
 
+export function normalizeSpot(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+
+  return {
+    ...raw,
+    ownerId: raw.ownerId ?? '',
+    name: raw.name ?? '名称未設定',
+    category: raw.category ?? '未分類',
+    lat: typeof raw.lat === 'number' ? raw.lat : null,
+    lng: typeof raw.lng === 'number' ? raw.lng : null,
+    notifyEnabled: raw.notifyEnabled ?? true,
+    visits: Array.isArray(raw.visits) ? raw.visits : [],
+  };
+}
+
 export function emptyVisit() {
   return { date: new Date().toISOString(), content: '', goodPoint: '', caution: '', photoBase64: null };
 }
@@ -46,7 +61,10 @@ export function subscribeToSpots(uid, onChange) {
   const q = query(collection(db, SPOTS_COLLECTION), where('ownerId', '==', uid));
   return onSnapshot(q, (snapshot) => {
     const list = [];
-    snapshot.forEach((d) => list.push({ id: d.id, ...d.data() }));
+    snapshot.forEach((d) => {
+      const spot = normalizeSpot({ id: d.id, ...d.data() });
+      if (spot) list.push(spot);
+    });
     onChange(list);
   });
 }
@@ -54,22 +72,23 @@ export function subscribeToSpots(uid, onChange) {
 // 1件の spot をリアルタイム購読する（カルテ画面・訪問履歴画面で使う）
 export function subscribeToSpot(spotId, onChange) {
   return onSnapshot(doc(db, SPOTS_COLLECTION, spotId), (snap) => {
-    onChange(snap.exists() ? { id: snap.id, ...snap.data() } : null);
+    const next = snap.exists() ? normalizeSpot({ id: snap.id, ...snap.data() }) : null;
+    onChange(next);
   });
 }
 
 // 1回だけ取得（バックグラウンドタスクなど、購読が要らない場所で使う）
 export async function getSpot(spotId) {
   const snap = await getDoc(doc(db, SPOTS_COLLECTION, spotId));
-  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  return snap.exists() ? normalizeSpot({ id: snap.id, ...snap.data() }) : null;
 }
 
 // 新しい場所を作成する（③場所登録画面用）。訪問記録はまだ空で、
 // ④のカルテから「+ 今回の記録」で最初の記録を追加する流れを想定。
-export async function createSpot(uid, { name, category, lat, lng, notifyEnabled = true }) {
+export async function createSpot(uid, { name, category = '未分類', lat, lng, notifyEnabled = true }) {
   const ref = await addDoc(collection(db, SPOTS_COLLECTION), {
     ownerId: uid,
-    name,
+    name: name || '名称未設定',
     category,
     lat,
     lng,
