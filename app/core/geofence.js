@@ -102,6 +102,53 @@ if (Platform.OS === 'android') {
   });
 }
 
+// Enter判定が下されたスポットに対して、実際に通知を組み立てて送る共通処理。
+// バックグラウンドタスクからの呼び出しと、登録直後の「すでに圏内」チェックの
+// 両方から使う（cause は診断ログ用のラベル）。
+async function handleSpotEnter(spotId, cause) {
+  if (await isWithinCooldown(spotId)) {
+    await appendLog(`⏸ クールダウン中のためスキップ (${cause}): ${spotId}`);
+    return;
+  }
+
+  const spot = await getSpot(spotId);
+  if (!spot) {
+    await appendLog(`❌ スポットが見つからない (${cause}): ${spotId}`);
+    return;
+  }
+  if (spot.notifyEnabled === false) {
+    await appendLog(`⏸ 通知OFF設定のためスキップ (${cause}): ${spot.name}`);
+    return;
+  }
+
+  const visits = spot.visits || [];
+  const last = latestVisit(spot);
+  const showBody = await getNotificationBodyVisible();
+
+  let body = '記録があります。開いて確認してください。';
+  if (showBody && last) {
+    const lines = [];
+    if (last.goodPoint) lines.push(`◎ ${last.goodPoint}`);
+    if (last.caution) lines.push(`⚠ ${last.caution}`);
+    // 強み1（蓄積型タイムライン）: 記録が複数回あることが伝わるようにする
+    if (visits.length >= 2) lines.push(`📚 これまでに${visits.length}回の記録があります`);
+    if (lines.length > 0) body = lines.join('\n');
+  }
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: `前回のあなたからのメモ（${spot.name}）`,
+      body,
+      data: { spotId: spot.id },
+      channelId: 'default', // 上で設定した、振動・重要度つきのチャンネルを明示的に使う
+    },
+    trigger: null,
+  });
+
+  await markNotified(spotId);
+  await appendLog(`✅ 通知を送信 (${cause}): ${spot.name}`);
+}
+
 TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   if (error) {
     await appendLog(`❌ タスクエラー: ${error.message || error}`);
@@ -121,52 +168,45 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   }
 
   try {
-    const spotId = region.identifier;
-    if (await isWithinCooldown(spotId)) {
-      await appendLog(`⏸ クールダウン中のためスキップ: ${spotId}`);
-      return;
-    }
-
-    const spot = await getSpot(spotId);
-    if (!spot) {
-      await appendLog(`❌ スポットが見つからない: ${spotId}`);
-      return;
-    }
-    if (spot.notifyEnabled === false) {
-      await appendLog(`⏸ 通知OFF設定のためスキップ: ${spot.name}`);
-      return;
-    }
-
-    const visits = spot.visits || [];
-    const last = latestVisit(spot);
-    const showBody = await getNotificationBodyVisible();
-
-    let body = '記録があります。開いて確認してください。';
-    if (showBody && last) {
-      const lines = [];
-      if (last.goodPoint) lines.push(`◎ ${last.goodPoint}`);
-      if (last.caution) lines.push(`⚠ ${last.caution}`);
-      // 強み1（蓄積型タイムライン）: 記録が複数回あることが伝わるようにする
-      if (visits.length >= 2) lines.push(`📚 これまでに${visits.length}回の記録があります`);
-      if (lines.length > 0) body = lines.join('\n');
-    }
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `前回のあなたからのメモ（${spot.name}）`,
-        body,
-        data: { spotId: spot.id },
-        channelId: 'default', // 上で設定した、振動・重要度つきのチャンネルを明示的に使う
-      },
-      trigger: null,
-    });
-
-    await markNotified(spotId);
-    await appendLog(`✅ 通知を送信: ${spot.name}`);
+    await handleSpotEnter(region.identifier, 'OS Enterイベント');
   } catch (e) {
     await appendLog(`❌ 例外発生: ${e.message || e}`);
   }
 });
+
+// 地球上の2点間の距離（メートル）。Haversine公式。
+function distanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ジオフェンスは「登録した瞬間すでに圏内にいる」場合、その後Enterが正しく
+// 発火しないことがある（既知の癖）。登録直後に現在地を確認し、
+// すでに半径内のスポットがあればその場でEnter相当の処理をしてしまうことで、
+// 圏内から動かない・微妙なGPS誤差でズレている、といったケースを救う。
+async function checkAlreadyInside(regions) {
+  try {
+    const position = await Location.getCurrentPositionAsync({});
+    const { latitude, longitude } = position.coords;
+    for (const region of regions) {
+      const d = distanceMeters(latitude, longitude, region.latitude, region.longitude);
+      if (d <= region.radius) {
+        await appendLog(
+          `📍 登録時点ですでに圏内と判定: ${region.identifier}（距離${Math.round(d)}m）`
+        );
+        await handleSpotEnter(region.identifier, '登録時チェック');
+      }
+    }
+  } catch (e) {
+    await appendLog(`⚠ 登録時の現在地チェックに失敗: ${e.message || e}`);
+  }
+}
 
 // 指定したspots一覧に基づいて、ジオフェンスの登録をまるごと張り替える。
 // notifyEnabled=false のスポットは監視対象から除外する。
@@ -193,6 +233,10 @@ export async function registerGeofences(spots) {
     }
     await saveGeofenceMeta(regions.length);
     await appendLog(`📍 ジオフェンス登録: ${regions.length}件`);
+
+    if (regions.length > 0) {
+      await checkAlreadyInside(regions);
+    }
   } catch (e) {
     await saveGeofenceMeta(0);
     await appendLog(`❌ ジオフェンス登録に失敗: ${e.message || e}`);
