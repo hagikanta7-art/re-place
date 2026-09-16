@@ -8,15 +8,24 @@ import VisitHistoryScreen from '../screens/VisitHistoryScreen';
 
 const Stack = createNativeStackNavigator();
 
-// ルート定義（画面遷移図の①〜⑥に対応）。
-// パラメータの契約:
-//   SpotForm       { spotId?: string }               … 省略時は新規登録
-//   SpotDetail     { spotId: string }
-//   VisitForm      { spotId: string, visitIndex?: number } … 省略時は新規追加
-//   VisitHistory   { spotId: string }
 export default function RootNavigator({ showOnboarding }) {
   return (
-    <Stack.Navigator initialRouteName={showOnboarding ? 'Onboarding' : 'Home'}>
+    <Stack.Navigator
+      initialRouteName={showOnboarding ? 'Onboarding' : 'Home'}
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: '#F5F7FB',
+          shadowColor: 'transparent',
+        },
+        headerTintColor: '#111827',
+        headerTitleStyle: {
+          fontWeight: '700',
+        },
+        contentStyle: {
+          backgroundColor: '#F5F7FB',
+        },
+      }}
+    >
       <Stack.Screen
         name="Onboarding"
         component={OnboardingScreen}

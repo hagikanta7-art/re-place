@@ -11,7 +11,6 @@ import { registerGeofences, attachNotificationResponseHandler } from './core/geo
 import { isOnboardingDone } from './screens/OnboardingScreen';
 import RootNavigator from './navigation/RootNavigator';
 
-// 通知タップ時のナビゲーションに使う ref（画面のどこからでも navigate できるようにする）
 const navigationRef = createNavigationContainerRef();
 
 export default function App() {
@@ -20,10 +19,13 @@ export default function App() {
   const detachNotificationHandler = useRef(null);
 
   useEffect(() => {
+    let unsubscribe = null;
+
     (async () => {
       try {
         const user = await waitForAuth();
-        setShowOnboarding(!(await isOnboardingDone()));
+        const onboardingDone = await isOnboardingDone();
+        setShowOnboarding(!onboardingDone);
 
         const fg = await Location.requestForegroundPermissionsAsync();
         if (fg.status !== 'granted') {
@@ -37,21 +39,20 @@ export default function App() {
             );
           }
         }
+
         await Notifications.requestPermissionsAsync();
-
-        // spots の変化に追随して、常にジオフェンス登録を最新化する（Must機能）
-        subscribeToSpots(user.uid, registerGeofences);
-
+        unsubscribe = subscribeToSpots(user.uid, registerGeofences);
         detachNotificationHandler.current = attachNotificationResponseHandler(navigationRef);
-
-        setReady(true);
       } catch (e) {
         console.log('init error', e);
         Alert.alert('初期化エラー', String(e));
+      } finally {
+        setReady(true);
       }
     })();
 
     return () => {
+      unsubscribe?.();
       detachNotificationHandler.current?.();
     };
   }, []);
@@ -74,5 +75,10 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F5F7FB',
+  },
 });

@@ -6,28 +6,50 @@ import SettingsScreen from '../screens/SettingsScreen';
 
 const Tab = createBottomTabNavigator();
 
-function TabIcon({ emoji }) {
-  return <Text style={{ fontSize: 18 }}>{emoji}</Text>;
+function TabIcon({ emoji, color = '#6B7280', focused = false }) {
+  return <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.75, color }}>{emoji}</Text>;
 }
 
-// ②場所一覧 / 地図タブ / ⑦設定 のボトムタブ。
 export default function HomeTabs() {
   return (
-    <Tab.Navigator>
+    <Tab.Navigator
+      initialRouteName="SpotList"
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarActiveTintColor: '#2F6FED',
+        tabBarInactiveTintColor: '#9AA5B1',
+        tabBarStyle: {
+          backgroundColor: '#FFFFFF',
+          borderTopColor: '#E5E7EB',
+          height: 64,
+          paddingBottom: 8,
+          paddingTop: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+        },
+        tabBarIcon: ({ color, focused }) => {
+          if (route.name === 'SpotList') return <TabIcon emoji="🏠" color={color} focused={focused} />;
+          if (route.name === 'SpotMap') return <TabIcon emoji="🗺" color={color} focused={focused} />;
+          return <TabIcon emoji="⚙️" color={color} focused={focused} />;
+        },
+      })}
+    >
       <Tab.Screen
         name="SpotList"
         component={SpotListScreen}
-        options={{ title: '場所一覧', tabBarIcon: () => <TabIcon emoji="🏠" /> }}
+        options={{ title: '場所一覧' }}
       />
       <Tab.Screen
         name="SpotMap"
         component={SpotMapScreen}
-        options={{ title: '地図', tabBarIcon: () => <TabIcon emoji="🗺" /> }}
+        options={{ title: '地図' }}
       />
       <Tab.Screen
         name="Settings"
         component={SettingsScreen}
-        options={{ title: '設定', tabBarIcon: () => <TabIcon emoji="⚙️" /> }}
+        options={{ title: '設定' }}
       />
     </Tab.Navigator>
   );
