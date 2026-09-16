@@ -9,11 +9,28 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as Notifications from 'expo-notifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSpot, latestVisit } from './spots';
 import { getNotificationBodyVisible } from './prefs';
 
 export const GEOFENCE_TASK = 'mykarte-geofence-task';
 export const DEFAULT_GEOFENCE_RADIUS_METERS = 120;
+
+// 同じ場所に居座っている間、境界の出入りで何度も通知が来ないようにするクールダウン。
+// （境界付近を行ったり来たりするとEnterイベントが連発することがあるため）
+const NOTIFY_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3時間
+const lastNotifiedKey = (spotId) => `geofence:lastNotified:${spotId}`;
+
+async function isWithinCooldown(spotId) {
+  const raw = await AsyncStorage.getItem(lastNotifiedKey(spotId));
+  if (!raw) return false;
+  const last = Number(raw);
+  return Date.now() - last < NOTIFY_COOLDOWN_MS;
+}
+
+async function markNotified(spotId) {
+  await AsyncStorage.setItem(lastNotifiedKey(spotId), String(Date.now()));
+}
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -33,9 +50,13 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   if (eventType !== Location.GeofencingEventType.Enter) return;
 
   try {
-    const spot = await getSpot(region.identifier);
+    const spotId = region.identifier;
+    if (await isWithinCooldown(spotId)) return;
+
+    const spot = await getSpot(spotId);
     if (!spot || spot.notifyEnabled === false) return;
 
+    const visits = spot.visits || [];
     const last = latestVisit(spot);
     const showBody = await getNotificationBodyVisible();
 
@@ -44,6 +65,8 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
       const lines = [];
       if (last.goodPoint) lines.push(`◎ ${last.goodPoint}`);
       if (last.caution) lines.push(`⚠ ${last.caution}`);
+      // 強み1（蓄積型タイムライン）: 記録が複数回あることが伝わるようにする
+      if (visits.length >= 2) lines.push(`📚 これまでに${visits.length}回の記録があります`);
       if (lines.length > 0) body = lines.join('\n');
     }
 
@@ -55,6 +78,8 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
       },
       trigger: null,
     });
+
+    await markNotified(spotId);
   } catch (e) {
     console.log('geofence task failed', e);
   }
