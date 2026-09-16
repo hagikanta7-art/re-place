@@ -6,6 +6,7 @@
 // - 通知データ（content.data）に spotId を積んでおくことで、通知タップ時に
 //   「④場所のカルテ」へ遷移できるようにしている（attachNotificationResponseHandler）。
 
+import { Platform } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as Notifications from 'expo-notifications';
@@ -88,6 +89,19 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// Android 8+は通知チャンネルの設定が振動・重要度・ロック画面表示を左右する。
+// 明示的に作っておかないと機種・OSバージョンによってバイブレーションが鳴らないことがあるため、
+// 「画面が暗い状態でも確実に気づける」ようにHIGH importance + バイブレーションパターンを指定する。
+if (Platform.OS === 'android') {
+  Notifications.setNotificationChannelAsync('default', {
+    name: '位置トリガー通知',
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 250, 250, 250],
+    sound: 'default',
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
+}
+
 TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   if (error) {
     await appendLog(`❌ タスクエラー: ${error.message || error}`);
@@ -142,6 +156,7 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
         title: `前回のあなたからのメモ（${spot.name}）`,
         body,
         data: { spotId: spot.id },
+        channelId: 'default', // 上で設定した、振動・重要度つきのチャンネルを明示的に使う
       },
       trigger: null,
     });
