@@ -18,7 +18,7 @@ export default function OnboardingScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>マイカルテ</Text>
+      <Text style={styles.title}>Re:Place</Text>
       <Text style={styles.description}>
         行った場所のことを次に活かせる、あなただけのカルテです。
       </Text>
