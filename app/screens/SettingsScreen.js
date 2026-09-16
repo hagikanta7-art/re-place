@@ -23,7 +23,7 @@ function formatLogTime(iso) {
 }
 
 // ⑦設定。D担当。許可状況の表示と、通知本文表示のON/OFFのみのシンプルな画面。
-export default function SettingsScreen() {
+export default function SettingsScreen({ navigation }) {
   const [notifStatus, setNotifStatus] = useState('確認中...');
   const [locationStatus, setLocationStatus] = useState('確認中...');
   const [locationGranted, setLocationGranted] = useState(true);
@@ -94,6 +94,14 @@ export default function SettingsScreen() {
         <Switch value={bodyVisible} onValueChange={handleToggleBodyVisible} />
       </View>
 
+      <TouchableOpacity
+        style={styles.row}
+        onPress={() => navigation.navigate('Onboarding')}
+      >
+        <Text style={styles.label}>アプリの説明を見る</Text>
+        <Text style={styles.chevron}>›</Text>
+      </TouchableOpacity>
+
       <View style={styles.row}>
         <Text style={styles.label}>ジオフェンス監視</Text>
         <Text
@@ -163,6 +171,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 15, color: colors.text },
   value: { color: colors.primary, fontWeight: 'bold' },
   valueWarning: { color: colors.danger },
+  chevron: { color: colors.borderStrong, fontSize: 20 },
   subNote: { color: colors.textFaint, fontSize: 12, marginTop: -4, marginBottom: spacing.xs },
   refreshButton: { alignSelf: 'flex-start', paddingVertical: 4 },
   refreshButtonText: { color: colors.primary, fontSize: 12 },
