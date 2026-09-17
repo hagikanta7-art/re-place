@@ -29,6 +29,7 @@ function buildHtml(spots, center, currentLocation) {
         icon: categoryIcon[s.category] || '📍',
         category: escapeHtml(s.category || '未分類'),
         preview: escapeHtml(last?.goodPoint || last?.content || ''),
+        photo: last?.photoBase64 || null,
       };
     });
 
@@ -73,6 +74,26 @@ function buildHtml(spots, center, currentLocation) {
       font-size: 12px;
       font-weight: 700;
     }
+    .spot-popup-photo {
+      width: 100%;
+      height: 90px;
+      object-fit: cover;
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+    .spot-marker-photo-wrap {
+      width: 44px;
+      height: 44px;
+    }
+    .spot-marker-photo {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+      object-fit: cover;
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -88,6 +109,7 @@ function buildHtml(spots, center, currentLocation) {
 
     var markers = ${JSON.stringify(markers)};
     markers.forEach(function (m) {
+      // ピンは写真の有無に関わらず必ず表示する
       var marker = L.marker([m.lat, m.lng]).addTo(map);
 
       // 常に地図上に名前を表示（タップしなくても分かるように）
@@ -102,12 +124,28 @@ function buildHtml(spots, center, currentLocation) {
       // ここではまだ画面遷移しない（ボタンを押したときだけ遷移する）
       var popupHtml =
         '<div class="spot-popup">' +
+        (m.photo ? '<img class="spot-popup-photo" src="data:image/jpeg;base64,' + m.photo + '" />' : '') +
         '<div class="spot-popup-title">' + m.icon + ' ' + m.name + '</div>' +
         '<div class="spot-popup-category">' + m.category + '</div>' +
         (m.preview ? '<div class="spot-popup-preview">◎ ' + m.preview + '</div>' : '') +
         '<button class="spot-popup-button" onclick="window.ReactNativeWebView.postMessage(JSON.stringify({spotId:\\'' + m.id + '\\'}))">カルテを開く ›</button>' +
         '</div>';
       marker.bindPopup(popupHtml);
+
+      if (m.photo) {
+        // ピンとかぶらないよう、ピンの右上に写真サムネイルを別マーカーとして添える
+        var photoIcon = L.divIcon({
+          className: 'spot-marker-icon',
+          html:
+            '<div class="spot-marker-photo-wrap">' +
+            '<img class="spot-marker-photo" src="data:image/jpeg;base64,' + m.photo + '" />' +
+            '</div>',
+          iconSize: [44, 44],
+          iconAnchor: [-10, 58],
+        });
+        var photoMarker = L.marker([m.lat, m.lng], { icon: photoIcon, zIndexOffset: 10 }).addTo(map);
+        photoMarker.bindPopup(popupHtml);
+      }
     });
 
     if (markers.length > 0) {

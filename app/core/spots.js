@@ -18,6 +18,8 @@
 //       caution: string,          … 次回の注意点（同上）
 //       rating: number,           … 満足度（0〜5の星評価。0は未評価。カテゴリ共通）
 //       photoBase64: string|null, … 圧縮済み画像。任意
+//       photoWidth: number|null,  … 圧縮後の画像の幅（表示時にアスペクト比を保つために使う）
+//       photoHeight: number|null, … 圧縮後の画像の高さ
 //       extra: object,            … カテゴリ固有の追加項目（例: 飲食なら price、通院なら nextAppointmentDate）
 //     },
 //     ...
@@ -62,6 +64,8 @@ export function emptyVisit() {
     caution: '',
     rating: 0,
     photoBase64: null,
+    photoWidth: null,
+    photoHeight: null,
     extra: {},
   };
 }
