@@ -11,6 +11,7 @@ import {
   Image,
   Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -64,6 +65,7 @@ export default function VisitFormScreen({ route, navigation }) {
   const { spotId, visitIndex, category = 'その他' } = route.params;
   const isEdit = typeof visitIndex === 'number';
   const fields = getVisitFields(category);
+  const insets = useSafeAreaInsets();
 
   const [date, setDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -196,7 +198,10 @@ export default function VisitFormScreen({ route, navigation }) {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ gap: spacing.sm }}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ gap: spacing.sm, paddingBottom: insets.bottom + spacing.lg }}
+    >
       <Text style={styles.label}>訪問日</Text>
       <TouchableOpacity style={styles.dateButton} onPress={() => setShowDatePicker(true)}>
         <Text style={styles.dateButtonText}>📅 {formatDate(date)}</Text>
