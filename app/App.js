@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { View, Text, Alert, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 
@@ -59,18 +60,22 @@ export default function App() {
 
   if (!ready) {
     return (
-      <View style={styles.loading}>
-        <StatusBar style="auto" />
-        <Text>準備中...</Text>
-      </View>
+      <SafeAreaProvider>
+        <View style={styles.loading}>
+          <StatusBar style="auto" />
+          <Text>準備中...</Text>
+        </View>
+      </SafeAreaProvider>
     );
   }
 
   return (
-    <NavigationContainer ref={navigationRef}>
-      <StatusBar style="auto" />
-      <RootNavigator showOnboarding={showOnboarding} />
-    </NavigationContainer>
+    <SafeAreaProvider>
+      <NavigationContainer ref={navigationRef}>
+        <StatusBar style="auto" />
+        <RootNavigator showOnboarding={showOnboarding} />
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
 
