@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   View,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 
@@ -51,6 +52,23 @@ function buildHtml(initialLat, initialLng) {
       sendPosition();
     };
 
+    // 「現在地」を示す青い丸（ピンとは別・ドラッグ不可）。位置が取得できるたびに更新する。
+    var currentLocationMarker = null;
+    window.setCurrentLocation = function (lat, lng) {
+      var latlng = [lat, lng];
+      if (currentLocationMarker) {
+        currentLocationMarker.setLatLng(latlng);
+      } else {
+        currentLocationMarker = L.circleMarker(latlng, {
+          radius: 8,
+          color: '#fff',
+          weight: 2,
+          fillColor: '#2f6fed',
+          fillOpacity: 1,
+        }).addTo(map);
+      }
+    };
+
     map.on('click', function (e) {
       marker.setLatLng(e.latlng);
       sendPosition();
@@ -75,6 +93,26 @@ export default function MapPicker({ visible, initialLat, initialLng, onConfirm, 
     // 初期座標が変わったとき（現在地取得直後など）だけ地図を作り直す
     [initialLat, initialLng]
   );
+
+  // モーダルを開くたびに現在地を取得し、地図上に青い丸で表示する（ピンとは別）
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const position = await Location.getCurrentPositionAsync({});
+        if (cancelled) return;
+        webviewRef.current?.injectJavaScript(
+          `window.setCurrentLocation && window.setCurrentLocation(${position.coords.latitude}, ${position.coords.longitude}); true;`
+        );
+      } catch (e) {
+        // 取得できなくても地図自体は使えるので無視する
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible]);
 
   const handleMessage = (event) => {
     try {
@@ -133,7 +171,7 @@ export default function MapPicker({ visible, initialLat, initialLng, onConfirm, 
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onCancel}>
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
         <View style={styles.header}>
           <Text style={styles.title}>地図をタップしてピンを刺してください</Text>
           <View style={styles.searchRow}>
@@ -186,14 +224,14 @@ export default function MapPicker({ visible, initialLat, initialLng, onConfirm, 
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  header: { padding: 12, paddingTop: 50, gap: 8 },
+  header: { padding: 12, gap: 8 },
   title: { fontWeight: 'bold' },
   searchRow: { flexDirection: 'row', gap: 8 },
   searchInput: {
