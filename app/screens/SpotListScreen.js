@@ -10,15 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getAuth } from 'firebase/auth';
 import { subscribeToSpots, latestVisit } from '../core/spots';
-
-const CATEGORY_ICON = {
-  飲食: '🍜',
-  美容: '✂️',
-  通院: '🏥',
-  バイト: '💼',
-  学習: '📚',
-  仕事: '💼',
-};
+import { categoryIcon } from '../core/theme';
 
 export default function SpotListScreen({ navigation }) {
   const [spots, setSpots] = useState([]);
@@ -55,7 +47,7 @@ export default function SpotListScreen({ navigation }) {
         activeOpacity={0.8}
       >
         <View style={styles.iconWrap}>
-          <Text style={styles.icon}>{CATEGORY_ICON[item.category] || '📍'}</Text>
+          <Text style={styles.icon}>{categoryIcon[item.category] || '📍'}</Text>
         </View>
 
         <View style={styles.cardBody}>

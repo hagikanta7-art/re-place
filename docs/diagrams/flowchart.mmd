@@ -1,0 +1,47 @@
+flowchart TD
+  subgraph BOOT["起動シーケンス（App.js useEffect）"]
+    direction TB
+    A1["index.js 読み込み<br/>geofence.js の副作用が発火<br/>（通知ハンドラ / TaskManager 定義）"]
+    A2["waitForAuth()<br/>匿名ログイン"]
+    A3["isOnboardingDone() 判定"]
+    A4["位置情報の許可要求<br/>（前面 → 背面）"]
+    A5["通知の許可要求"]
+    A6["subscribeToSpots(uid)<br/>→ registerGeofences をコールバック登録"]
+    A7["attachNotificationResponseHandler"]
+    A8["setReady(true)"]
+    A1 --> A2 --> A3 --> A4 --> A5 --> A6 --> A7 --> A8
+  end
+
+  A8 --> BR{"showOnboarding ?"}
+  BR -- 初回 --> ON["Onboarding 画面<br/>「はじめる」"]
+  BR -- 済み --> HOME["HomeTabs"]
+  ON -- "replace('Home')" --> HOME
+
+  subgraph TABS["HomeTabs（ボトムタブ）"]
+    direction LR
+    LIST["🏠 場所一覧<br/>SpotList"]
+    MAP["🗺 地図<br/>SpotMap"]
+    SET["⚙️ 設定<br/>Settings"]
+  end
+  HOME --> LIST
+  HOME --> MAP
+  HOME --> SET
+
+  LIST -- "カードをタップ" --> DETAIL["SpotDetail<br/>（カルテ）"]
+  MAP -- "ピンをタップ" --> DETAIL
+  LIST -- "＋ 場所を追加" --> FORM_NEW["SpotForm（新規）"]
+  DETAIL -- "編集" --> FORM_EDIT["SpotForm（編集）"]
+  FORM_NEW -- "createSpot() 保存" --> DETAIL
+  FORM_EDIT -- "updateSpotInfo() 保存" --> DETAIL
+  FORM_NEW -. "🗺 地図で選ぶ" .-> PICKER["MapPicker<br/>（モーダル / Leaflet）"]
+  PICKER -. "onConfirm(lat,lng)" .-> FORM_NEW
+
+  DETAIL -- "＋ 今回の記録" --> VFORM_NEW["VisitForm（新規）"]
+  DETAIL -- "🕒 訪問履歴" --> HIST["VisitHistory"]
+  HIST -- "行をタップ" --> VFORM_EDIT["VisitForm（編集）"]
+  VFORM_NEW -- "addVisit() 保存" --> DETAIL
+  VFORM_EDIT -- "updateVisit() 保存" --> HIST
+  DETAIL -- "削除 → deleteSpot()" --> HOME
+  SET -- "説明を見る" --> ON
+
+  TAP["🔔 通知タップ<br/>navigationRef.navigate"] -. どの画面からでも .-> DETAIL

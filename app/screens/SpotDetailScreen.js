@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Image, Alert, StyleSheet } from 'react-native';
 import { subscribeToSpot, latestVisit, deleteSpot } from '../core/spots';
 import { colors, spacing, radius, categoryIcon } from '../core/theme';
+import { getVisitFields } from '../core/visitFields';
 
 // ④場所のカルテ。C担当。
 // route.params: { spotId: string }
@@ -35,6 +36,7 @@ export default function SpotDetailScreen({ route, navigation }) {
 
   const visits = spot.visits || [];
   const last = latestVisit(spot);
+  const fields = getVisitFields(spot.category);
 
   const handleDelete = () => {
     Alert.alert('この場所を削除しますか？', '記録もすべて削除されます。', [
@@ -72,12 +74,42 @@ export default function SpotDetailScreen({ route, navigation }) {
               style={styles.photo}
             />
           )}
-          <Text style={styles.cardLabel}>📝 前回の内容</Text>
-          <Text style={styles.cardValue}>{last.content || '（未記入）'}</Text>
-          <Text style={styles.cardLabel}>◎ 良かったこと</Text>
-          <Text style={styles.cardValue}>{last.goodPoint || '（未記入）'}</Text>
-          <Text style={styles.cardLabel}>⚠ 次回の注意点</Text>
-          <Text style={styles.cardValue}>{last.caution || '（未記入）'}</Text>
+          {fields.content && (
+            <>
+              <Text style={styles.cardLabel}>📝 {fields.content.label}</Text>
+              <Text style={styles.cardValue}>{last.content || '（未記入）'}</Text>
+            </>
+          )}
+          {fields.goodPoint && (
+            <>
+              <Text style={styles.cardLabel}>◎ {fields.goodPoint.label}</Text>
+              <Text style={styles.cardValue}>{last.goodPoint || '（未記入）'}</Text>
+            </>
+          )}
+          {fields.caution && (
+            <>
+              <Text style={styles.cardLabel}>⚠ {fields.caution.label}</Text>
+              <Text style={styles.cardValue}>{last.caution || '（未記入）'}</Text>
+            </>
+          )}
+          {fields.extra.map((f) => (
+            <View key={f.key}>
+              <Text style={styles.cardLabel}>{f.label.replace('（任意）', '')}</Text>
+              <Text style={styles.cardValue}>
+                {f.type === 'date'
+                  ? last.extra?.[f.key]
+                    ? new Date(last.extra[f.key]).toLocaleDateString('ja-JP')
+                    : '（未設定）'
+                  : last.extra?.[f.key] || '（未記入）'}
+              </Text>
+            </View>
+          ))}
+          {!!last.rating && (
+            <>
+              <Text style={styles.cardLabel}>満足度</Text>
+              <Text style={styles.cardValue}>{'★'.repeat(last.rating)}{'☆'.repeat(5 - last.rating)}</Text>
+            </>
+          )}
         </View>
       ) : (
         <Text style={styles.empty}>まだ記録がありません。最初の記録を追加しましょう。</Text>
@@ -85,7 +117,7 @@ export default function SpotDetailScreen({ route, navigation }) {
 
       <TouchableOpacity
         style={styles.primaryButton}
-        onPress={() => navigation.navigate('VisitForm', { spotId })}
+        onPress={() => navigation.navigate('VisitForm', { spotId, category: spot.category })}
       >
         <Text style={styles.primaryButtonText}>＋ 今回の記録</Text>
       </TouchableOpacity>
