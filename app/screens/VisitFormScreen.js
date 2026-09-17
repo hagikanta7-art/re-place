@@ -9,6 +9,7 @@ import {
   ScrollView,
   Platform,
   Image,
+  Dimensions,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
@@ -28,6 +29,25 @@ async function pickAndCompressImage(launch) {
     { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true }
   );
   return { base64: manipulated.base64, width: manipulated.width, height: manipulated.height };
+}
+
+// 画面幅からプレビュー画像の表示サイズを数値で決める。ScrollView内で
+// aspectRatioスタイルを使うと、Android側の高さ計算が不安定になり
+// スクロール可能範囲が正しく再計算されないことがあるため、
+// width/heightを固定の数値として直接指定する方式にしている。
+const PHOTO_MAX_DISPLAY_HEIGHT = 320;
+const screenWidth = Dimensions.get('window').width;
+
+function getPhotoDisplaySize(photoWidth, photoHeight) {
+  const displayWidth = screenWidth - spacing.md * 2;
+  if (!photoWidth || !photoHeight) {
+    return { width: displayWidth, height: 180 };
+  }
+  const scaledHeight = displayWidth * (photoHeight / photoWidth);
+  const height = Math.min(scaledHeight, PHOTO_MAX_DISPLAY_HEIGHT);
+  // 高さを上限で切ったぶん、幅も同じ比率で縮めて中央に収める（contain相当）
+  const width = height < scaledHeight ? (height / scaledHeight) * displayWidth : displayWidth;
+  return { width, height };
 }
 
 function formatDate(d) {
@@ -285,13 +305,8 @@ export default function VisitFormScreen({ route, navigation }) {
         <View style={styles.photoWrap}>
           <Image
             source={{ uri: `data:image/jpeg;base64,${photoBase64}` }}
-            resizeMode={photoWidth && photoHeight ? 'contain' : 'cover'}
-            style={[
-              styles.photo,
-              photoWidth && photoHeight
-                ? { aspectRatio: photoWidth / photoHeight, maxHeight: 320 }
-                : { height: 180 },
-            ]}
+            resizeMode="contain"
+            style={[styles.photo, getPhotoDisplaySize(photoWidth, photoHeight)]}
           />
           <TouchableOpacity
             onPress={() => {
@@ -363,9 +378,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   photoButtonText: { color: colors.primary, fontWeight: 'bold', fontSize: 13 },
-  photoWrap: { marginBottom: spacing.xs },
+  photoWrap: { marginBottom: spacing.xs, alignItems: 'center' },
   photo: {
-    width: '100%',
     borderRadius: radius.sm,
     marginBottom: spacing.xs,
     backgroundColor: colors.border,
