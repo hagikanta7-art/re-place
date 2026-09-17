@@ -109,6 +109,39 @@ export async function getLocationTrackingStatus() {
   return { isActive };
 }
 
+// 通知の中身（場所名・前回のメモ）を組み立てるのに必要な最小限の情報を
+// AsyncStorageにキャッシュしておく。以前は handleSpotEnter() が毎回
+// Firestoreへライブアクセスしていたが、バックグラウンドの短い実行時間内に
+// ネットワーク応答が間に合わず、通知そのものが送られない（タスクが黙って
+// 終了する）ことがあった。圏内判定はすでにキャッシュ（geofence:regions）で
+// 完結しているのに、通知本文の組み立てだけネットワークに依存しているのは
+// 中途半端だったため、こちらもキャッシュ経由に揃える。
+// registerGeofences() が実行されるたび（＝アプリが前面にありFirestoreと
+// 同期できているとき）に更新される。
+const GEOFENCE_SPOT_CACHE_KEY = 'geofence:spotSummaries';
+
+async function saveSpotSummaries(spots) {
+  const summaries = {};
+  for (const spot of spots) {
+    const last = latestVisit(spot);
+    summaries[spot.id] = {
+      id: spot.id,
+      name: spot.name,
+      notifyEnabled: spot.notifyEnabled,
+      goodPoint: last?.goodPoint || '',
+      caution: last?.caution || '',
+      visitsCount: (spot.visits || []).length,
+    };
+  }
+  await AsyncStorage.setItem(GEOFENCE_SPOT_CACHE_KEY, JSON.stringify(summaries));
+}
+
+async function getCachedSpotSummary(spotId) {
+  const raw = await AsyncStorage.getItem(GEOFENCE_SPOT_CACHE_KEY);
+  const summaries = raw ? JSON.parse(raw) : {};
+  return summaries[spotId] || null;
+}
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     // shouldShowAlert は非推奨（expo-notifications 57で shouldShowBanner /
@@ -146,7 +179,31 @@ async function handleSpotEnter(spotId, cause) {
   // 「今は圏内にいる」という物理的な事実は変わらないため）
   await setInsideState(spotId, true);
 
-  const spot = await getSpot(spotId);
+  // 通知本文の組み立ては、まずローカルキャッシュから読む（ネットワーク不要）。
+  // キャッシュに無い場合（キャッシュがまだ作られる前など）だけ、フォールバックとして
+  // Firestoreへライブアクセスする。
+  let spot = await getCachedSpotSummary(spotId);
+  let fromCache = true;
+  if (!spot) {
+    fromCache = false;
+    try {
+      const live = await getSpot(spotId);
+      if (live) {
+        const last = latestVisit(live);
+        spot = {
+          id: live.id,
+          name: live.name,
+          notifyEnabled: live.notifyEnabled,
+          goodPoint: last?.goodPoint || '',
+          caution: last?.caution || '',
+          visitsCount: (live.visits || []).length,
+        };
+      }
+    } catch (e) {
+      await appendLog(`⚠ フォールバックのFirestore取得に失敗 (${cause}): ${e.message || e}`);
+    }
+  }
+
   if (!spot) {
     await appendLog(`❌ スポットが見つからない (${cause}): ${spotId}`);
     return;
@@ -161,17 +218,15 @@ async function handleSpotEnter(spotId, cause) {
     await appendLog(`⚠ 通知の許可がありません（status=${permission.status}）。表示されない可能性があります`);
   }
 
-  const visits = spot.visits || [];
-  const last = latestVisit(spot);
   const showBody = await getNotificationBodyVisible();
 
   let body = '記録があります。開いて確認してください。';
-  if (showBody && last) {
+  if (showBody) {
     const lines = [];
-    if (last.goodPoint) lines.push(`◎ ${last.goodPoint}`);
-    if (last.caution) lines.push(`⚠ ${last.caution}`);
+    if (spot.goodPoint) lines.push(`◎ ${spot.goodPoint}`);
+    if (spot.caution) lines.push(`⚠ ${spot.caution}`);
     // 強み1（蓄積型タイムライン）: 記録が複数回あることが伝わるようにする
-    if (visits.length >= 2) lines.push(`📚 これまでに${visits.length}回の記録があります`);
+    if (spot.visitsCount >= 2) lines.push(`📚 これまでに${spot.visitsCount}回の記録があります`);
     if (lines.length > 0) body = lines.join('\n');
   }
 
@@ -185,7 +240,7 @@ async function handleSpotEnter(spotId, cause) {
     trigger: null,
   });
 
-  await appendLog(`✅ 通知を送信 (${cause}): ${spot.name}`);
+  await appendLog(`✅ 通知を送信 (${cause}${fromCache ? '' : '・Firestoreへフォールバック'}): ${spot.name}`);
 }
 
 // 圏外に出た（Exitイベント）ときの処理。通知は出さず、「圏内にいる」状態だけ
@@ -347,6 +402,7 @@ export async function registerGeofences(spots) {
     }
     await saveGeofenceMeta(regions.length);
     await saveRegions(regions);
+    await saveSpotSummaries(spots);
     await appendLog(`📍 ジオフェンス登録: ${regions.length}件`);
 
     if (regions.length > 0) {
