@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import { useFocusEffect } from '@react-navigation/native';
 import { getAuth } from 'firebase/auth';
 import * as Location from 'expo-location';
 import { subscribeToSpots, latestVisit } from '../core/spots';
@@ -151,7 +152,11 @@ function buildHtml(spots, center, currentLocation) {
 
 export default function SpotMapScreen({ navigation }) {
   const [spots, setSpots] = useState([]);
-  const [currentLocation, setCurrentLocation] = useState(null);
+  // 地図の初期表示位置を決めるためだけに使う値（一度取得したら地図を作り直す）。
+  // ライブの現在地更新は webviewRef 経由の injectJavaScript で行い、
+  // 地図（ズーム・パン状態）を作り直さないようにする。
+  const [initialLocation, setInitialLocation] = useState(null);
+  const webviewRef = useRef(null);
 
   useEffect(() => {
     const uid = getAuth().currentUser?.uid;
@@ -165,7 +170,7 @@ export default function SpotMapScreen({ navigation }) {
     (async () => {
       try {
         const position = await Location.getCurrentPositionAsync({});
-        setCurrentLocation({
+        setInitialLocation({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
         });
@@ -175,9 +180,47 @@ export default function SpotMapScreen({ navigation }) {
     })();
   }, []);
 
+  // このタブを表示している間だけ現在地を監視し、青い丸をリアルタイムで更新する。
+  // （以前は起動時に1回取得するだけで、タブを切り替えて戻ってきても
+  //   アプリを再起動しないと更新されなかった）
+  useFocusEffect(
+    useCallback(() => {
+      let subscription;
+      let cancelled = false;
+      (async () => {
+        try {
+          const sub = await Location.watchPositionAsync(
+            { accuracy: Location.Accuracy.Balanced, timeInterval: 4000, distanceInterval: 5 },
+            (position) => {
+              webviewRef.current?.injectJavaScript(
+                `window.setCurrentLocation && window.setCurrentLocation(${position.coords.latitude}, ${position.coords.longitude}); true;`
+              );
+            }
+          );
+          if (cancelled) {
+            sub.remove();
+          } else {
+            subscription = sub;
+          }
+        } catch (e) {
+          // 取得できなくても地図自体は使えるので無視する
+        }
+      })();
+      return () => {
+        cancelled = true;
+        subscription?.remove();
+      };
+    }, [])
+  );
+
   const validSpots = useMemo(
     () => spots.filter((s) => typeof s.lat === 'number' && typeof s.lng === 'number'),
     [spots]
+  );
+
+  const html = useMemo(
+    () => buildHtml(validSpots, DEFAULT_CENTER, initialLocation),
+    [validSpots, initialLocation]
   );
 
   const handleMessage = (event) => {
@@ -198,8 +241,9 @@ export default function SpotMapScreen({ navigation }) {
       </View>
 
       <WebView
+        ref={webviewRef}
         originWhitelist={['*']}
-        source={{ html: buildHtml(validSpots, DEFAULT_CENTER, currentLocation) }}
+        source={{ html }}
         onMessage={handleMessage}
         style={styles.webview}
       />

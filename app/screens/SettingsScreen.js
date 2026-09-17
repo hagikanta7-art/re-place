@@ -3,7 +3,12 @@ import { View, Text, Switch, TouchableOpacity, AppState, Linking, ScrollView, St
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { getNotificationBodyVisible, setNotificationBodyVisible } from '../core/prefs';
-import { getGeofenceStatus, getGeofenceLog, clearGeofenceLog } from '../core/geofence';
+import {
+  getGeofenceStatus,
+  getGeofenceLog,
+  clearGeofenceLog,
+  getLocationTrackingStatus,
+} from '../core/geofence';
 import { colors, spacing, radius } from '../core/theme';
 
 function formatTime(iso) {
@@ -29,6 +34,7 @@ export default function SettingsScreen({ navigation }) {
   const [locationGranted, setLocationGranted] = useState(true);
   const [bodyVisible, setBodyVisible] = useState(true);
   const [geofenceStatus, setGeofenceStatus] = useState({ isActive: false, count: null, updatedAt: null });
+  const [trackingStatus, setTrackingStatus] = useState({ isActive: false });
   const [log, setLog] = useState([]);
 
   const refreshLog = useCallback(async () => {
@@ -58,6 +64,7 @@ export default function SettingsScreen({ navigation }) {
     }
 
     setGeofenceStatus(await getGeofenceStatus());
+    setTrackingStatus(await getLocationTrackingStatus());
     await refreshLog();
   }, [refreshLog]);
 
@@ -115,6 +122,19 @@ export default function SettingsScreen({ navigation }) {
           ? `${geofenceStatus.count}件のスポットを監視中（${formatTime(geofenceStatus.updatedAt)}）`
           : 'まだ場所が登録されていません'}
       </Text>
+
+      <View style={styles.row}>
+        <Text style={styles.label}>位置追跡サービス</Text>
+        <Text
+          style={[styles.value, !trackingStatus.isActive && styles.valueWarning]}
+        >
+          {trackingStatus.isActive ? '稼働中' : '停止中'}
+        </Text>
+      </View>
+      <Text style={styles.subNote}>
+        稼働中は通知欄に常時アイコンが表示されます（省電力による検知遅延を防ぐため）。
+      </Text>
+
       <TouchableOpacity style={styles.refreshButton} onPress={refreshPermissions}>
         <Text style={styles.refreshButtonText}>状態を再確認</Text>
       </TouchableOpacity>

@@ -33,7 +33,9 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "近くの記録を通知するために位置情報を使用します。"
+          "locationAlwaysAndWhenInUsePermission": "近くの記録を通知するために位置情報を使用します。",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       "expo-notifications",

@@ -15,13 +15,31 @@ import { getSpot, latestVisit } from './spots';
 import { getNotificationBodyVisible } from './prefs';
 
 export const GEOFENCE_TASK = 'mykarte-geofence-task';
+// OSのジオフェンシング(startGeofencingAsync)は省電力のため、バックグラウンドでは
+// 位置情報の更新頻度が大きく落とされ、Enter/Exitの判定が大幅に遅延することがある。
+// これを補うため、フォアグラウンドサービスで位置情報を継続的に取得し続け、
+// 自前で圏内/圏外を判定するタスクを別途用意する（常時通知アイコンが出る代わりに、
+// 画面オフ・バックグラウンドでも確実に検知できるようにするため）。
+export const LOCATION_TASK = 'mykarte-location-task';
 export const DEFAULT_GEOFENCE_RADIUS_METERS = 120;
 
-// 同じ場所に居座っている間、境界の出入りで何度も通知が来ないようにするクールダウン。
-// （境界付近を行ったり来たりするとEnterイベントが連発することがあるため）
-// ※テスト段階では短めにしておく。デモ本番が近づいたら伸ばすことを検討。
-const NOTIFY_COOLDOWN_MS = 10 * 60 * 1000; // 10分
-const lastNotifiedKey = (spotId) => `geofence:lastNotified:${spotId}`;
+// 同じ場所に居座っている間、境界の出入りで何度も通知が来ないようにするための
+// 「今、圏内にいるかどうか」の状態管理。
+// 以前は時間ベースのクールダウン（10分）だったが、それだと「圏内にいる間ずっと
+// 通知が来ない/来る」の境目が分かりにくく、また本当に一度出て戻ってきた場合でも
+// 10分経っていないと通知が来ない、という不便があった。
+// 今は「圏外→圏内」に切り替わった瞬間だけ通知し、圏内にいる間は再通知しない。
+// 圏外に出た（Exitイベント）ら状態をリセットし、次に圏内に入ったらまた通知する。
+const insideStateKey = (spotId) => `geofence:inside:${spotId}`;
+
+async function isMarkedInside(spotId) {
+  const raw = await AsyncStorage.getItem(insideStateKey(spotId));
+  return raw === '1';
+}
+
+async function setInsideState(spotId, inside) {
+  await AsyncStorage.setItem(insideStateKey(spotId), inside ? '1' : '0');
+}
 
 // 「タスクが発火したが、なぜ通知を出さなかったか／出せなかったか」を記録する診断ログ。
 // 実機を持ち帰らなくても⑦設定画面から原因を確認できるようにするためのもの。
@@ -48,17 +66,6 @@ export async function clearGeofenceLog() {
   await AsyncStorage.removeItem(GEOFENCE_LOG_KEY);
 }
 
-async function isWithinCooldown(spotId) {
-  const raw = await AsyncStorage.getItem(lastNotifiedKey(spotId));
-  if (!raw) return false;
-  const last = Number(raw);
-  return Date.now() - last < NOTIFY_COOLDOWN_MS;
-}
-
-async function markNotified(spotId) {
-  await AsyncStorage.setItem(lastNotifiedKey(spotId), String(Date.now()));
-}
-
 // 「本当にジオフェンス登録が動いたか」を⑦設定画面で確認できるようにするための記録。
 // expo-locationには登録件数を直接問い合わせるAPIがないため、
 // registerGeofences() が実行されるたびに自分で記録しておく。
@@ -79,6 +86,27 @@ export async function getGeofenceStatus() {
   const raw = await AsyncStorage.getItem(GEOFENCE_META_KEY);
   const meta = raw ? JSON.parse(raw) : { count: null, updatedAt: null };
   return { isActive, ...meta };
+}
+
+// フォアグラウンドサービスの位置追跡タスク（LOCATION_TASK）は、Firestoreに
+// アクセスせずに圏内判定できるよう、登録済みスポットの座標一覧をAsyncStorageに
+// キャッシュしておく（registerGeofences() のたびに更新）。
+const GEOFENCE_REGIONS_KEY = 'geofence:regions';
+
+async function saveRegions(regions) {
+  await AsyncStorage.setItem(GEOFENCE_REGIONS_KEY, JSON.stringify(regions));
+}
+
+async function loadRegions() {
+  const raw = await AsyncStorage.getItem(GEOFENCE_REGIONS_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
+
+// ⑦設定画面から呼び出す診断用関数。フォアグラウンドサービスによる
+// 継続的な位置追跡タスクが起動しているかを確認する。
+export async function getLocationTrackingStatus() {
+  const isActive = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK);
+  return { isActive };
 }
 
 Notifications.setNotificationHandler({
@@ -110,10 +138,13 @@ if (Platform.OS === 'android') {
 // バックグラウンドタスクからの呼び出しと、登録直後の「すでに圏内」チェックの
 // 両方から使う（cause は診断ログ用のラベル）。
 async function handleSpotEnter(spotId, cause) {
-  if (await isWithinCooldown(spotId)) {
-    await appendLog(`⏸ クールダウン中のためスキップ (${cause}): ${spotId}`);
+  if (await isMarkedInside(spotId)) {
+    await appendLog(`⏸ すでに圏内にいるため通知をスキップ (${cause}): ${spotId}`);
     return;
   }
+  // 圏外→圏内に切り替わったことを先に記録する（この後の判定で通知しない場合でも、
+  // 「今は圏内にいる」という物理的な事実は変わらないため）
+  await setInsideState(spotId, true);
 
   const spot = await getSpot(spotId);
   if (!spot) {
@@ -154,8 +185,14 @@ async function handleSpotEnter(spotId, cause) {
     trigger: null,
   });
 
-  await markNotified(spotId);
   await appendLog(`✅ 通知を送信 (${cause}): ${spot.name}`);
+}
+
+// 圏外に出た（Exitイベント）ときの処理。通知は出さず、「圏内にいる」状態だけ
+// リセットする。これにより、次に圏内に入ったときにまた通知できるようになる。
+async function handleSpotExit(spotId, cause) {
+  await setInsideState(spotId, false);
+  await appendLog(`🚪 圏外に出た (${cause}): ${spotId}`);
 }
 
 TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
@@ -171,15 +208,51 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   await appendLog(
     `🔔 タスク発火: eventType=${eventType} identifier=${region?.identifier}`
   );
-  if (eventType !== Location.GeofencingEventType.Enter) {
-    await appendLog('（Enterイベントではないためスキップ）');
-    return;
-  }
 
   try {
-    await handleSpotEnter(region.identifier, 'OS Enterイベント');
+    if (eventType === Location.GeofencingEventType.Enter) {
+      await handleSpotEnter(region.identifier, 'OS Enterイベント');
+    } else if (eventType === Location.GeofencingEventType.Exit) {
+      await handleSpotExit(region.identifier, 'OS Exitイベント');
+    } else {
+      await appendLog('（Enter/Exit以外のイベントのためスキップ）');
+    }
   } catch (e) {
     await appendLog(`❌ 例外発生: ${e.message || e}`);
+  }
+});
+
+// フォアグラウンドサービスから継続的に届く位置情報をもとに、自前で圏内/圏外の
+// 切り替わりを判定する（distanceMeters は下で定義しているが、関数宣言は
+// 巻き上げられるためここから参照できる）。ログが位置更新のたびに大量に出ないよう、
+// 「状態が変化したとき」だけ handleSpotEnter/handleSpotExit を呼ぶ。
+async function handleLocationSample(region, lat, lng) {
+  const distance = distanceMeters(lat, lng, region.latitude, region.longitude);
+  const inside = distance <= region.radius;
+  const wasInside = await isMarkedInside(region.identifier);
+  if (inside && !wasInside) {
+    await handleSpotEnter(region.identifier, '継続位置追跡');
+  } else if (!inside && wasInside) {
+    await handleSpotExit(region.identifier, '継続位置追跡');
+  }
+}
+
+TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
+  if (error) {
+    await appendLog(`❌ 位置追跡タスクエラー: ${error.message || error}`);
+    return;
+  }
+  const locations = data?.locations;
+  const latest = Array.isArray(locations) ? locations[locations.length - 1] : null;
+  if (!latest) return;
+
+  try {
+    const regions = await loadRegions();
+    for (const region of regions) {
+      await handleLocationSample(region, latest.coords.latitude, latest.coords.longitude);
+    }
+  } catch (e) {
+    await appendLog(`❌ 位置追跡タスクで例外発生: ${e.message || e}`);
   }
 });
 
@@ -217,6 +290,36 @@ async function checkAlreadyInside(regions) {
   }
 }
 
+// フォアグラウンドサービスによる継続的な位置追跡を開始する。
+// 常時表示の通知アイコンが出る代わりに、バッテリー最適化の影響を受けずに
+// 位置情報を取得し続けられる（Must機能の信頼性を上げるためのトレードオフ）。
+async function startLocationTracking() {
+  const already = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK);
+  if (already) return;
+  try {
+    await Location.startLocationUpdatesAsync(LOCATION_TASK, {
+      accuracy: Location.Accuracy.Balanced,
+      timeInterval: 30 * 1000, // 30秒ごと
+      distanceInterval: 20, // 20m動くごと
+      foregroundService: {
+        notificationTitle: 'Re:Place',
+        notificationBody: '登録した場所への到着を検知しています',
+        killServiceOnDestroy: false,
+      },
+    });
+    await appendLog('📡 位置追跡（フォアグラウンドサービス）を開始');
+  } catch (e) {
+    await appendLog(`❌ 位置追跡の開始に失敗: ${e.message || e}`);
+  }
+}
+
+async function stopLocationTracking() {
+  const already = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK);
+  if (!already) return;
+  await Location.stopLocationUpdatesAsync(LOCATION_TASK);
+  await appendLog('📡 位置追跡（フォアグラウンドサービス）を停止');
+}
+
 // 指定したspots一覧に基づいて、ジオフェンスの登録をまるごと張り替える。
 // notifyEnabled=false のスポットは監視対象から除外する。
 export async function registerGeofences(spots) {
@@ -229,7 +332,9 @@ export async function registerGeofences(spots) {
       longitude: s.lng,
       radius: s.geofenceRadius || DEFAULT_GEOFENCE_RADIUS_METERS,
       notifyOnEnter: true,
-      notifyOnExit: false,
+      // Exitイベントも受け取り、「圏内にいる」状態をリセットするために使う
+      // （次に圏内へ入ったときにまた通知できるようにするため）
+      notifyOnExit: true,
     }));
 
   try {
@@ -241,10 +346,14 @@ export async function registerGeofences(spots) {
       await Location.startGeofencingAsync(GEOFENCE_TASK, regions);
     }
     await saveGeofenceMeta(regions.length);
+    await saveRegions(regions);
     await appendLog(`📍 ジオフェンス登録: ${regions.length}件`);
 
     if (regions.length > 0) {
       await checkAlreadyInside(regions);
+      await startLocationTracking();
+    } else {
+      await stopLocationTracking();
     }
   } catch (e) {
     await saveGeofenceMeta(0);
