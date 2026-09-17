@@ -244,17 +244,7 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
   }
   const locations = data?.locations;
   const latest = Array.isArray(locations) ? locations[locations.length - 1] : null;
-  if (!latest) {
-    await appendLog('⚠ 位置追跡タスクは発火したがlocationsが空');
-    return;
-  }
-
-  // 診断用: バックグラウンドでこのタスク自体が呼ばれているかを確認するため、
-  // 圏内/圏外の切り替わりの有無にかかわらず、位置を受信したことを毎回記録する。
-  // （原因切り分けが済んだら削除してよい一時的なログ）
-  await appendLog(
-    `📶 位置更新を受信: lat=${latest.coords.latitude.toFixed(5)}, lng=${latest.coords.longitude.toFixed(5)}`
-  );
+  if (!latest) return;
 
   try {
     const regions = await loadRegions();
