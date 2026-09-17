@@ -17,11 +17,23 @@ import { getNotificationBodyVisible } from './prefs';
 export const GEOFENCE_TASK = 'mykarte-geofence-task';
 export const DEFAULT_GEOFENCE_RADIUS_METERS = 120;
 
-// 同じ場所に居座っている間、境界の出入りで何度も通知が来ないようにするクールダウン。
-// （境界付近を行ったり来たりするとEnterイベントが連発することがあるため）
-// ※テスト段階では短めにしておく。デモ本番が近づいたら伸ばすことを検討。
-const NOTIFY_COOLDOWN_MS = 10 * 60 * 1000; // 10分
-const lastNotifiedKey = (spotId) => `geofence:lastNotified:${spotId}`;
+// 同じ場所に居座っている間、境界の出入りで何度も通知が来ないようにするための
+// 「今、圏内にいるかどうか」の状態管理。
+// 以前は時間ベースのクールダウン（10分）だったが、それだと「圏内にいる間ずっと
+// 通知が来ない/来る」の境目が分かりにくく、また本当に一度出て戻ってきた場合でも
+// 10分経っていないと通知が来ない、という不便があった。
+// 今は「圏外→圏内」に切り替わった瞬間だけ通知し、圏内にいる間は再通知しない。
+// 圏外に出た（Exitイベント）ら状態をリセットし、次に圏内に入ったらまた通知する。
+const insideStateKey = (spotId) => `geofence:inside:${spotId}`;
+
+async function isMarkedInside(spotId) {
+  const raw = await AsyncStorage.getItem(insideStateKey(spotId));
+  return raw === '1';
+}
+
+async function setInsideState(spotId, inside) {
+  await AsyncStorage.setItem(insideStateKey(spotId), inside ? '1' : '0');
+}
 
 // 「タスクが発火したが、なぜ通知を出さなかったか／出せなかったか」を記録する診断ログ。
 // 実機を持ち帰らなくても⑦設定画面から原因を確認できるようにするためのもの。
@@ -46,17 +58,6 @@ export async function getGeofenceLog() {
 
 export async function clearGeofenceLog() {
   await AsyncStorage.removeItem(GEOFENCE_LOG_KEY);
-}
-
-async function isWithinCooldown(spotId) {
-  const raw = await AsyncStorage.getItem(lastNotifiedKey(spotId));
-  if (!raw) return false;
-  const last = Number(raw);
-  return Date.now() - last < NOTIFY_COOLDOWN_MS;
-}
-
-async function markNotified(spotId) {
-  await AsyncStorage.setItem(lastNotifiedKey(spotId), String(Date.now()));
 }
 
 // 「本当にジオフェンス登録が動いたか」を⑦設定画面で確認できるようにするための記録。
@@ -110,10 +111,13 @@ if (Platform.OS === 'android') {
 // バックグラウンドタスクからの呼び出しと、登録直後の「すでに圏内」チェックの
 // 両方から使う（cause は診断ログ用のラベル）。
 async function handleSpotEnter(spotId, cause) {
-  if (await isWithinCooldown(spotId)) {
-    await appendLog(`⏸ クールダウン中のためスキップ (${cause}): ${spotId}`);
+  if (await isMarkedInside(spotId)) {
+    await appendLog(`⏸ すでに圏内にいるため通知をスキップ (${cause}): ${spotId}`);
     return;
   }
+  // 圏外→圏内に切り替わったことを先に記録する（この後の判定で通知しない場合でも、
+  // 「今は圏内にいる」という物理的な事実は変わらないため）
+  await setInsideState(spotId, true);
 
   const spot = await getSpot(spotId);
   if (!spot) {
@@ -154,8 +158,14 @@ async function handleSpotEnter(spotId, cause) {
     trigger: null,
   });
 
-  await markNotified(spotId);
   await appendLog(`✅ 通知を送信 (${cause}): ${spot.name}`);
+}
+
+// 圏外に出た（Exitイベント）ときの処理。通知は出さず、「圏内にいる」状態だけ
+// リセットする。これにより、次に圏内に入ったときにまた通知できるようになる。
+async function handleSpotExit(spotId, cause) {
+  await setInsideState(spotId, false);
+  await appendLog(`🚪 圏外に出た (${cause}): ${spotId}`);
 }
 
 TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
@@ -171,13 +181,15 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   await appendLog(
     `🔔 タスク発火: eventType=${eventType} identifier=${region?.identifier}`
   );
-  if (eventType !== Location.GeofencingEventType.Enter) {
-    await appendLog('（Enterイベントではないためスキップ）');
-    return;
-  }
 
   try {
-    await handleSpotEnter(region.identifier, 'OS Enterイベント');
+    if (eventType === Location.GeofencingEventType.Enter) {
+      await handleSpotEnter(region.identifier, 'OS Enterイベント');
+    } else if (eventType === Location.GeofencingEventType.Exit) {
+      await handleSpotExit(region.identifier, 'OS Exitイベント');
+    } else {
+      await appendLog('（Enter/Exit以外のイベントのためスキップ）');
+    }
   } catch (e) {
     await appendLog(`❌ 例外発生: ${e.message || e}`);
   }
@@ -229,7 +241,9 @@ export async function registerGeofences(spots) {
       longitude: s.lng,
       radius: s.geofenceRadius || DEFAULT_GEOFENCE_RADIUS_METERS,
       notifyOnEnter: true,
-      notifyOnExit: false,
+      // Exitイベントも受け取り、「圏内にいる」状態をリセットするために使う
+      // （次に圏内へ入ったときにまた通知できるようにするため）
+      notifyOnExit: true,
     }));
 
   try {
