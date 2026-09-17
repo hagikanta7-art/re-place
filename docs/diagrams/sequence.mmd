@@ -2,30 +2,55 @@ sequenceDiagram
   actor U as ユーザー
   participant UI as アプリ (SpotForm)
   participant FS as Firestore (spots)
-  participant OS as OS位置情報<br/>Geofencing API
-  participant TASK as バックグラウンドタスク<br/>(TaskManager)
+  participant AS as AsyncStorage<br/>(regions / inside状態 / ログ)
+  participant OS as OS Geofencing API<br/>(startGeofencingAsync)
+  participant FGS as フォアグラウンドサービス<br/>(startLocationUpdatesAsync)
+  participant GTASK as GEOFENCE_TASK
+  participant LTASK as LOCATION_TASK
   participant NOTI as 通知サービス
   participant DET as SpotDetail 画面
 
   U->>UI: 場所を登録（name, lat, lng）
   UI->>FS: createSpot()
   FS-->>UI: onSnapshot で反映
-  UI->>OS: registerGeofences()<br/>startGeofencingAsync（半径120m既定）
-  OS-->>OS: 登録時にすでに領域内か即チェック
+  UI->>UI: registerGeofences(spots)
+  UI->>OS: startGeofencingAsync（半径120m既定）
+  UI->>AS: 座標一覧をキャッシュ（geofence:regions）
+  UI->>UI: checkAlreadyInside()<br/>（登録時点ですでに圏内なら即Enter扱い）
+  UI->>FGS: startLocationUpdatesAsync<br/>（常時通知アイコン表示、30秒/20mごと）
 
-  Note over U,OS: --- 時間が経過し、ユーザーが現実に領域へ入る ---
+  Note over U,FGS: --- 時間が経過し、ユーザーが現実に領域へ入る ---
+  Note over OS,LTASK: 2つの経路が並行して圏内/圏外を検知する
 
-  U->>OS: 位置が半径内に入る
-  OS->>TASK: Enter イベント発火
-  TASK->>TASK: isWithinCooldown()（10分以内なら中断）
-  alt クールダウン中
-    TASK--xTASK: 通知せず終了
-  else 通知可能
-    TASK->>FS: getSpot(spotId)
-    FS-->>TASK: スポットデータ（notifyEnabled 等）
-    TASK->>TASK: notifyEnabled チェック
-    TASK->>NOTI: scheduleNotificationAsync（即時）
-    TASK->>TASK: markNotified()で10分クールダウン開始
+  rect rgb(240, 248, 255)
+    Note right of OS: 経路A: OSジオフェンシング<br/>（省電力だが検知が遅延しがち）
+    U->>OS: 位置が半径内に入る/出る
+    OS->>GTASK: Enter / Exit イベント発火
+  end
+
+  rect rgb(255, 248, 240)
+    Note right of FGS: 経路B: フォアグラウンドサービス<br/>（継続的だがバッテリー消費増）
+    FGS->>LTASK: 位置情報を定期的に配信
+    LTASK->>AS: loadRegions() でキャッシュ取得
+    LTASK->>LTASK: Haversineで距離計算 → 圏内/圏外判定
+  end
+
+  alt Enterと判定（経路A or B）
+    GTASK->>AS: isMarkedInside(spotId)
+    LTASK->>AS: isMarkedInside(spotId)
+    alt すでに圏内と記録済み
+      Note over AS: 通知せずスキップ<br/>（時間ベースのクールダウンは廃止）
+    else 圏外→圏内への切り替わり
+      AS-->>GTASK: false
+      GTASK->>AS: setInsideState(spotId, true)
+      GTASK->>FS: getSpot(spotId)
+      FS-->>GTASK: スポットデータ（notifyEnabled 等）
+      GTASK->>GTASK: notifyEnabled チェック
+      GTASK->>NOTI: scheduleNotificationAsync（即時）
+    end
+  else Exitと判定（経路A or B）
+    GTASK->>AS: setInsideState(spotId, false)
+    Note over AS: 次に圏内へ入ったらまた通知できるようにリセット
   end
 
   NOTI-->>U: 通知バナー表示

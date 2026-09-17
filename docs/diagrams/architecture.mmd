@@ -1,0 +1,78 @@
+flowchart TB
+  subgraph DEVICE["Androidスマートフォン"]
+    direction TB
+
+    subgraph UI["UI層（React Navigation）"]
+      direction LR
+      SCR_LIST["場所一覧<br/>SpotList"]
+      SCR_MAP["地図タブ<br/>SpotMap"]
+      SCR_DETAIL["カルテ<br/>SpotDetail"]
+      SCR_FORM["場所の登録/編集<br/>SpotForm + MapPicker"]
+      SCR_VISIT["記録の追加/編集<br/>VisitForm / VisitHistory"]
+      SCR_SET["設定<br/>Settings（診断ログ表示）"]
+    end
+
+    subgraph CORE["共通データ・ロジック層（app/core）"]
+      direction TB
+      SPOTS["spots.js<br/>Firestore CRUD"]
+      GEOFENCE["geofence.js<br/>Must機能の中核"]
+      PREFS["prefs.js<br/>表示設定"]
+      THEME["theme.js<br/>デザイントークン"]
+    end
+
+    subgraph NATIVE["OSネイティブ機能"]
+      direction TB
+      GEOFENCING_API["Geofencing API<br/>(Google Play services)<br/>startGeofencingAsync"]
+      FGS["フォアグラウンドサービス<br/>startLocationUpdatesAsync<br/>常時通知アイコンを表示"]
+      TASKMANAGER["TaskManager<br/>Headless JS 起動"]
+      NOTIF_SYS["Android 通知システム<br/>通知チャンネル・バイブレーション"]
+    end
+
+    subgraph STORAGE["端末ローカル保存（AsyncStorage）"]
+      direction TB
+      AS_REGIONS["geofence:regions<br/>（座標キャッシュ）"]
+      AS_INSIDE["geofence:inside:*<br/>（圏内/圏外の状態）"]
+      AS_LOG["geofence:log<br/>（診断ログ）"]
+      AS_PREF["pref:*<br/>（表示設定）"]
+    end
+
+    WEBVIEW["WebView + Leaflet.js<br/>地図描画"]
+  end
+
+  subgraph CLOUD["クラウド"]
+    direction TB
+    AUTH["Firebase Authentication<br/>（匿名ログイン）"]
+    FIRESTORE["Firebase Firestore<br/>spots コレクション<br/>（場所 + 訪問記録を1文書に格納）"]
+  end
+
+  subgraph EXTERNAL["外部サービス（無料・APIキー不要）"]
+    direction TB
+    OSM["OpenStreetMap<br/>タイル配信"]
+    NOMINATIM["Nominatim<br/>住所検索（ジオコーディング）"]
+  end
+
+  UI -- "読み書き" --> SPOTS
+  SPOTS -- "onSnapshot / CRUD" --> FIRESTORE
+  UI -- "匿名ログイン" --> AUTH
+  SCR_MAP --> WEBVIEW
+  SCR_FORM --> WEBVIEW
+  WEBVIEW -- "タイル取得" --> OSM
+  SCR_FORM -- "住所検索" --> NOMINATIM
+
+  SPOTS -- "spotsの変化を通知" --> GEOFENCE
+  GEOFENCE -- "領域を登録" --> GEOFENCING_API
+  GEOFENCE -- "継続追跡を開始" --> FGS
+  GEOFENCE -- "座標をキャッシュ" --> AS_REGIONS
+  GEOFENCE -- "圏内/圏外の状態を保存" --> AS_INSIDE
+  GEOFENCE -- "診断ログを記録" --> AS_LOG
+  PREFS -- "設定を保存" --> AS_PREF
+
+  GEOFENCING_API -- "Enter/Exitイベント" --> TASKMANAGER
+  FGS -- "位置情報コールバック" --> TASKMANAGER
+  TASKMANAGER -- "GEOFENCE_TASK / LOCATION_TASK<br/>を起動" --> GEOFENCE
+  GEOFENCE -- "圏内判定時にFirestoreへ確認" --> FIRESTORE
+  GEOFENCE -- "通知を発行" --> NOTIF_SYS
+  NOTIF_SYS -- "タップでカルテへ遷移" --> SCR_DETAIL
+
+  SCR_SET -- "診断ログ / 状態を表示" --> AS_LOG
+  SCR_SET -- "位置追跡サービスの稼働状況を表示" --> GEOFENCE
