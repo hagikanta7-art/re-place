@@ -142,7 +142,7 @@ export default function MapPicker({ visible, initialLat, initialLng, onConfirm, 
         `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(
           query.trim()
         )}`,
-        { headers: { 'Accept-Language': 'ja' } }
+        { headers: { 'Accept-Language': 'ja', 'User-Agent': 'RePlaceApp/1.0' } }
       );
       const results = await res.json();
       if (results && results.length > 0) {

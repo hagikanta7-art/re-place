@@ -27,7 +27,7 @@ async function pickAndCompressImage(launch) {
     [{ resize: { width: 600 } }],
     { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true }
   );
-  return manipulated.base64;
+  return { base64: manipulated.base64, width: manipulated.width, height: manipulated.height };
 }
 
 function formatDate(d) {
@@ -52,6 +52,8 @@ export default function VisitFormScreen({ route, navigation }) {
   const [caution, setCaution] = useState('');
   const [rating, setRating] = useState(0);
   const [photoBase64, setPhotoBase64] = useState(null);
+  const [photoWidth, setPhotoWidth] = useState(null);
+  const [photoHeight, setPhotoHeight] = useState(null);
   const [extraValues, setExtraValues] = useState({});
   const [openExtraDateKey, setOpenExtraDateKey] = useState(null);
   const [pickingPhoto, setPickingPhoto] = useState(false);
@@ -74,6 +76,8 @@ export default function VisitFormScreen({ route, navigation }) {
         setCaution(visit.caution || '');
         setRating(visit.rating || 0);
         setPhotoBase64(visit.photoBase64 || null);
+        setPhotoWidth(visit.photoWidth || null);
+        setPhotoHeight(visit.photoHeight || null);
         setExtraValues(visit.extra || {});
       }
       setLoading(false);
@@ -95,10 +99,14 @@ export default function VisitFormScreen({ route, navigation }) {
     }
     setPickingPhoto(true);
     try {
-      const base64 = await pickAndCompressImage(() =>
+      const photo = await pickAndCompressImage(() =>
         ImagePicker.launchCameraAsync({ quality: 0.7 })
       );
-      if (base64) setPhotoBase64(base64);
+      if (photo) {
+        setPhotoBase64(photo.base64);
+        setPhotoWidth(photo.width);
+        setPhotoHeight(photo.height);
+      }
     } catch (e) {
       Alert.alert('撮影に失敗しました', String(e));
     } finally {
@@ -114,13 +122,17 @@ export default function VisitFormScreen({ route, navigation }) {
     }
     setPickingPhoto(true);
     try {
-      const base64 = await pickAndCompressImage(() =>
+      const photo = await pickAndCompressImage(() =>
         ImagePicker.launchImageLibraryAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           quality: 0.7,
         })
       );
-      if (base64) setPhotoBase64(base64);
+      if (photo) {
+        setPhotoBase64(photo.base64);
+        setPhotoWidth(photo.width);
+        setPhotoHeight(photo.height);
+      }
     } catch (e) {
       Alert.alert('選択に失敗しました', String(e));
     } finally {
@@ -138,6 +150,8 @@ export default function VisitFormScreen({ route, navigation }) {
         caution: caution.trim(),
         rating,
         photoBase64,
+        photoWidth,
+        photoHeight,
         extra: extraValues,
       };
       if (isEdit) {
@@ -271,9 +285,21 @@ export default function VisitFormScreen({ route, navigation }) {
         <View style={styles.photoWrap}>
           <Image
             source={{ uri: `data:image/jpeg;base64,${photoBase64}` }}
-            style={styles.photo}
+            resizeMode={photoWidth && photoHeight ? 'contain' : 'cover'}
+            style={[
+              styles.photo,
+              photoWidth && photoHeight
+                ? { aspectRatio: photoWidth / photoHeight, maxHeight: 320 }
+                : { height: 180 },
+            ]}
           />
-          <TouchableOpacity onPress={() => setPhotoBase64(null)}>
+          <TouchableOpacity
+            onPress={() => {
+              setPhotoBase64(null);
+              setPhotoWidth(null);
+              setPhotoHeight(null);
+            }}
+          >
             <Text style={styles.removePhoto}>写真を削除</Text>
           </TouchableOpacity>
         </View>
@@ -340,7 +366,6 @@ const styles = StyleSheet.create({
   photoWrap: { marginBottom: spacing.xs },
   photo: {
     width: '100%',
-    height: 180,
     borderRadius: radius.sm,
     marginBottom: spacing.xs,
     backgroundColor: colors.border,

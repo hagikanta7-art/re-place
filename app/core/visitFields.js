@@ -10,7 +10,7 @@ export const VISIT_FIELDS = {
     caution: { label: '次回頼みたいもの・注意点', placeholder: '例）辛味は普通で' },
     extra: [{ key: 'price', label: '金額（任意）', placeholder: '例）980', type: 'number' }],
   },
-  美容: {
+  美容院: {
     content: { label: '施術内容', placeholder: '例）カット＋カラー' },
     goodPoint: null,
     caution: { label: '次回リクエスト内容', placeholder: '例）もう少し短めに' },

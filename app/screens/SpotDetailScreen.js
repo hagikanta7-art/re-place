@@ -71,7 +71,13 @@ export default function SpotDetailScreen({ route, navigation }) {
           {last.photoBase64 && (
             <Image
               source={{ uri: `data:image/jpeg;base64,${last.photoBase64}` }}
-              style={styles.photo}
+              resizeMode={last.photoWidth && last.photoHeight ? 'contain' : 'cover'}
+              style={[
+                styles.photo,
+                last.photoWidth && last.photoHeight
+                  ? { aspectRatio: last.photoWidth / last.photoHeight, maxHeight: 280 }
+                  : { height: 160 },
+              ]}
             />
           )}
           {fields.content && (
@@ -153,7 +159,6 @@ const styles = StyleSheet.create({
   },
   photo: {
     width: '100%',
-    height: 160,
     borderRadius: radius.sm,
     marginBottom: spacing.sm,
     backgroundColor: colors.border,
