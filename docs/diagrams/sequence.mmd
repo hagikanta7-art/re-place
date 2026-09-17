@@ -1,0 +1,35 @@
+sequenceDiagram
+  actor U as ユーザー
+  participant UI as アプリ (SpotForm)
+  participant FS as Firestore (spots)
+  participant OS as OS位置情報<br/>Geofencing API
+  participant TASK as バックグラウンドタスク<br/>(TaskManager)
+  participant NOTI as 通知サービス
+  participant DET as SpotDetail 画面
+
+  U->>UI: 場所を登録（name, lat, lng）
+  UI->>FS: createSpot()
+  FS-->>UI: onSnapshot で反映
+  UI->>OS: registerGeofences()<br/>startGeofencingAsync（半径120m既定）
+  OS-->>OS: 登録時にすでに領域内か即チェック
+
+  Note over U,OS: --- 時間が経過し、ユーザーが現実に領域へ入る ---
+
+  U->>OS: 位置が半径内に入る
+  OS->>TASK: Enter イベント発火
+  TASK->>TASK: isWithinCooldown()（10分以内なら中断）
+  alt クールダウン中
+    TASK--xTASK: 通知せず終了
+  else 通知可能
+    TASK->>FS: getSpot(spotId)
+    FS-->>TASK: スポットデータ（notifyEnabled 等）
+    TASK->>TASK: notifyEnabled チェック
+    TASK->>NOTI: scheduleNotificationAsync（即時）
+    TASK->>TASK: markNotified()で10分クールダウン開始
+  end
+
+  NOTI-->>U: 通知バナー表示
+  U->>NOTI: 通知をタップ
+  NOTI->>DET: navigate("SpotDetail", spotId)
+  DET->>FS: subscribeToSpot(spotId)
+  FS-->>DET: 最新の記録を表示

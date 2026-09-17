@@ -5,17 +5,9 @@ import { WebView } from 'react-native-webview';
 import { getAuth } from 'firebase/auth';
 import * as Location from 'expo-location';
 import { subscribeToSpots, latestVisit } from '../core/spots';
+import { categoryIcon } from '../core/theme';
 
 const DEFAULT_CENTER = { lat: 35.681236, lng: 139.767125 }; // 東京駅（フォールバック）
-
-const CATEGORY_ICON = {
-  飲食: '🍜',
-  美容: '✂️',
-  通院: '🏥',
-  バイト: '💼',
-  学習: '📚',
-  仕事: '💼',
-};
 
 function escapeHtml(text) {
   return String(text ?? '').replace(/[&<>"']/g, (c) => (
@@ -33,7 +25,7 @@ function buildHtml(spots, center, currentLocation) {
         lat: s.lat,
         lng: s.lng,
         name: escapeHtml(s.name || '場所'),
-        icon: CATEGORY_ICON[s.category] || '📍',
+        icon: categoryIcon[s.category] || '📍',
         category: escapeHtml(s.category || '未分類'),
         preview: escapeHtml(last?.goodPoint || last?.content || ''),
       };

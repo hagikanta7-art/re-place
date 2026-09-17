@@ -40,14 +40,19 @@ export default function VisitHistoryScreen({ route, navigation }) {
           <TouchableOpacity
             style={styles.row}
             onPress={() =>
-              navigation.navigate('VisitForm', { spotId, visitIndex: item.index })
+              navigation.navigate('VisitForm', { spotId, category: spot?.category, visitIndex: item.index })
             }
           >
             <Text style={styles.date}>{formatDate(item.date)}</Text>
             <View style={styles.rowText}>
-              <Text style={styles.content} numberOfLines={1}>
-                {item.content || '（内容なし）'}
-              </Text>
+              <View style={styles.contentRow}>
+                <Text style={styles.content} numberOfLines={1}>
+                  {item.content || '（内容なし）'}
+                </Text>
+                {!!item.rating && (
+                  <Text style={styles.rating}>{'★'.repeat(item.rating)}</Text>
+                )}
+              </View>
               {(item.goodPoint || item.caution) && (
                 <Text style={styles.sub} numberOfLines={1}>
                   {item.goodPoint ? `◎ ${item.goodPoint}` : ''}
@@ -80,7 +85,9 @@ const styles = StyleSheet.create({
   },
   date: { width: 84, color: colors.textMuted, fontSize: 13 },
   rowText: { flex: 1 },
-  content: { fontSize: 15, color: colors.text },
+  contentRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  content: { fontSize: 15, color: colors.text, flexShrink: 1 },
+  rating: { fontSize: 12, color: colors.primary },
   sub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   chevron: { color: colors.borderStrong, fontSize: 20 },
   empty: { color: colors.textFaint, textAlign: 'center', marginTop: 40 },

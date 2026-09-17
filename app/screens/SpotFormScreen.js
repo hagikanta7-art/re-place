@@ -12,9 +12,11 @@ import {
 import * as Location from 'expo-location';
 import { getAuth } from 'firebase/auth';
 import { createSpot, updateSpotInfo, getSpot } from '../core/spots';
+import { categoryIcon } from '../core/theme';
 import MapPicker from '../MapPicker';
 
 const DEFAULT_CENTER = { lat: 35.681236, lng: 139.767125 }; // 東京駅（フォールバック）
+const CATEGORIES = Object.keys(categoryIcon);
 
 // ③場所登録・編集。B担当。
 // route.params: { spotId?: string } … spotId があれば編集モード
@@ -23,7 +25,7 @@ export default function SpotFormScreen({ route, navigation }) {
   const isEdit = !!spotId;
 
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('飲食');
+  const [category, setCategory] = useState(CATEGORIES[0]);
   const [notifyEnabled, setNotifyEnabled] = useState(true);
   const [location, setLocationState] = useState(null); // { lat, lng }
   const [mapVisible, setMapVisible] = useState(false);
@@ -41,7 +43,7 @@ export default function SpotFormScreen({ route, navigation }) {
       const spot = await getSpot(spotId);
       if (spot) {
         setName(spot.name || '');
-        setCategory(spot.category || '飲食');
+        setCategory(spot.category || CATEGORIES[0]);
         setNotifyEnabled(spot.notifyEnabled !== false);
         setLocationState({ lat: spot.lat, lng: spot.lng });
       }
@@ -138,12 +140,20 @@ export default function SpotFormScreen({ route, navigation }) {
           : '位置が未選択です'}
       </Text>
 
-      <TextInput
-        style={styles.input}
-        placeholder="カテゴリ（飲食／美容／通院／バイト／その他）"
-        value={category}
-        onChangeText={setCategory}
-      />
+      <Text style={styles.label}>カテゴリ</Text>
+      <View style={styles.categoryRow}>
+        {CATEGORIES.map((c) => (
+          <TouchableOpacity
+            key={c}
+            style={[styles.categoryChip, category === c && styles.categoryChipSelected]}
+            onPress={() => setCategory(c)}
+          >
+            <Text style={[styles.categoryChipText, category === c && styles.categoryChipTextSelected]}>
+              {categoryIcon[c]} {c}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
       <View style={styles.switchRow}>
         <Text style={styles.label}>通知 ON / OFF</Text>
@@ -193,6 +203,20 @@ const styles = StyleSheet.create({
   },
   locationButtonText: { color: '#2f6fed', fontWeight: 'bold' },
   locationStatus: { color: '#666', fontSize: 12 },
+  categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  categoryChip: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  categoryChipSelected: {
+    backgroundColor: '#2f6fed',
+    borderColor: '#2f6fed',
+  },
+  categoryChipText: { color: '#666', fontSize: 14 },
+  categoryChipTextSelected: { color: '#fff', fontWeight: 'bold' },
   switchRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

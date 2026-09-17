@@ -15,6 +15,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { getSpot, addVisit, updateVisit } from '../core/spots';
 import { colors, spacing, radius } from '../core/theme';
+import { getVisitFields } from '../core/visitFields';
 
 // Firestoreの1ドキュメント上限(1MB)に余裕を持って収まるよう、
 // 幅600px・JPEG品質50%程度までリサイズ・圧縮してからBase64化する。
@@ -37,17 +38,22 @@ function formatDate(d) {
 }
 
 // ⑤記録追加・編集。C担当。
-// route.params: { spotId: string, visitIndex?: number } … visitIndex があれば編集モード
+// route.params: { spotId: string, category?: string, visitIndex?: number }
+//   … visitIndex があれば編集モード。category は表示項目の出し分けに使う（core/visitFields.js）
 export default function VisitFormScreen({ route, navigation }) {
-  const { spotId, visitIndex } = route.params;
+  const { spotId, visitIndex, category = 'その他' } = route.params;
   const isEdit = typeof visitIndex === 'number';
+  const fields = getVisitFields(category);
 
   const [date, setDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [content, setContent] = useState('');
   const [goodPoint, setGoodPoint] = useState('');
   const [caution, setCaution] = useState('');
+  const [rating, setRating] = useState(0);
   const [photoBase64, setPhotoBase64] = useState(null);
+  const [extraValues, setExtraValues] = useState({});
+  const [openExtraDateKey, setOpenExtraDateKey] = useState(null);
   const [pickingPhoto, setPickingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(isEdit);
@@ -66,7 +72,9 @@ export default function VisitFormScreen({ route, navigation }) {
         setContent(visit.content || '');
         setGoodPoint(visit.goodPoint || '');
         setCaution(visit.caution || '');
+        setRating(visit.rating || 0);
         setPhotoBase64(visit.photoBase64 || null);
+        setExtraValues(visit.extra || {});
       }
       setLoading(false);
     })();
@@ -128,7 +136,9 @@ export default function VisitFormScreen({ route, navigation }) {
         content: content.trim(),
         goodPoint: goodPoint.trim(),
         caution: caution.trim(),
+        rating,
         photoBase64,
+        extra: extraValues,
       };
       if (isEdit) {
         await updateVisit(spotId, visitIndex, visit);
@@ -167,29 +177,94 @@ export default function VisitFormScreen({ route, navigation }) {
         />
       )}
 
-      <Text style={styles.label}>今回の内容</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="例）油そば大盛り"
-        value={content}
-        onChangeText={setContent}
-      />
+      {fields.content && (
+        <>
+          <Text style={styles.label}>{fields.content.label}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder={fields.content.placeholder}
+            value={content}
+            onChangeText={setContent}
+          />
+        </>
+      )}
 
-      <Text style={styles.label}>良かったこと</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="例）麺がもちもちで美味しい"
-        value={goodPoint}
-        onChangeText={setGoodPoint}
-      />
+      {fields.goodPoint && (
+        <>
+          <Text style={styles.label}>{fields.goodPoint.label}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder={fields.goodPoint.placeholder}
+            value={goodPoint}
+            onChangeText={setGoodPoint}
+          />
+        </>
+      )}
 
-      <Text style={styles.label}>次回の注意点</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="例）辛味は普通で"
-        value={caution}
-        onChangeText={setCaution}
-      />
+      {fields.caution && (
+        <>
+          <Text style={styles.label}>{fields.caution.label}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder={fields.caution.placeholder}
+            value={caution}
+            onChangeText={setCaution}
+          />
+        </>
+      )}
+
+      {fields.extra.map((f) => (
+        <View key={f.key}>
+          <Text style={styles.label}>{f.label}</Text>
+          {f.type === 'date' ? (
+            <>
+              <TouchableOpacity
+                style={styles.dateButton}
+                onPress={() => setOpenExtraDateKey(f.key)}
+              >
+                <Text style={styles.dateButtonText}>
+                  📅 {extraValues[f.key] ? formatDate(new Date(extraValues[f.key])) : '未設定'}
+                </Text>
+              </TouchableOpacity>
+              {openExtraDateKey === f.key && (
+                <DateTimePicker
+                  value={extraValues[f.key] ? new Date(extraValues[f.key]) : new Date()}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                  onChange={(event, selectedDate) => {
+                    setOpenExtraDateKey(Platform.OS === 'ios' ? f.key : null);
+                    if (event.type === 'dismissed') return;
+                    if (selectedDate) {
+                      setExtraValues((prev) => ({ ...prev, [f.key]: selectedDate.toISOString() }));
+                    }
+                  }}
+                />
+              )}
+            </>
+          ) : (
+            <TextInput
+              style={styles.input}
+              placeholder={f.placeholder}
+              value={extraValues[f.key] || ''}
+              onChangeText={(v) => setExtraValues((prev) => ({ ...prev, [f.key]: v }))}
+              keyboardType={f.type === 'number' ? 'numeric' : 'default'}
+            />
+          )}
+        </View>
+      ))}
+
+      <Text style={styles.label}>満足度</Text>
+      <View style={styles.starRow}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <TouchableOpacity
+            key={n}
+            onPress={() => setRating(rating === n ? 0 : n)}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+          >
+            <Text style={styles.star}>{n <= rating ? '★' : '☆'}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
       <Text style={styles.label}>写真（任意）</Text>
       {photoBase64 && (
@@ -250,6 +325,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
+  starRow: { flexDirection: 'row', gap: spacing.xs },
+  star: { fontSize: 30, color: colors.primary },
   photoRow: { flexDirection: 'row', gap: spacing.sm },
   photoButton: {
     flex: 1,

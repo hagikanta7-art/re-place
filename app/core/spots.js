@@ -13,10 +13,12 @@
 //   visits: [
 //     {
 //       date: string (ISO8601),
-//       content: string,          … 今回の内容（例: 油そば大盛り）
-//       goodPoint: string,        … 良かったこと
-//       caution: string,          … 次回の注意点
+//       content: string,          … 今回の内容（ラベルはカテゴリにより変わる。core/visitFields.js 参照）
+//       goodPoint: string,        … 良かったこと（同上。カテゴリによっては非表示）
+//       caution: string,          … 次回の注意点（同上）
+//       rating: number,           … 満足度（0〜5の星評価。0は未評価。カテゴリ共通）
 //       photoBase64: string|null, … 圧縮済み画像。任意
+//       extra: object,            … カテゴリ固有の追加項目（例: 飲食なら price、通院なら nextAppointmentDate）
 //     },
 //     ...
 //   ]
@@ -53,7 +55,15 @@ export function normalizeSpot(raw) {
 }
 
 export function emptyVisit() {
-  return { date: new Date().toISOString(), content: '', goodPoint: '', caution: '', photoBase64: null };
+  return {
+    date: new Date().toISOString(),
+    content: '',
+    goodPoint: '',
+    caution: '',
+    rating: 0,
+    photoBase64: null,
+    extra: {},
+  };
 }
 
 // 自分の spots 一覧をリアルタイム購読する。戻り値は unsubscribe 関数。
